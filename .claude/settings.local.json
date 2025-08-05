@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir:*)",
+      "Bash(go mod:*)",
+      "Bash(go build:*)",
+      "Bash(./bin/claude-monitor:*)",
+      "Bash(find:*)",
+      "Bash(go get:*)",
+      "Bash(make:*)",
+      "Bash(mv:*)",
+      "Bash(rm:*)",
+      "Bash(clang:*)",
+      "Bash(./bin/claude-daemon:*)",
+      "Bash(timeout:*)",
+      "Bash(go test:*)",
+      "Bash(cat:*)",
+      "Bash(ls:*)",
+      "WebFetch(domain:docs.anthropic.com)"
+    ],
+    "deny": []
+  }
+}
