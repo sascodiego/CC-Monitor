@@ -76,9 +76,24 @@ func NewWorkBlock(sessionID string, startTime time.Time) *WorkBlock {
 	}
 }
 
+/**
+ * AGENT:     daemon-core
+ * TRACE:     CLAUDE-CORE-017
+ * CONTEXT:   Enhanced UpdateActivity method with timing validation
+ * REASON:    Activity time must never be before work block start time to maintain timing consistency
+ * CHANGE:    Added validation to ensure activityTime is not before StartTime.
+ * PREVENTION:Always validate activity time against work block boundaries
+ * RISK:      Medium - Incorrect activity timing could cause duration calculation issues
+ */
 // UpdateActivity updates the last activity time for the work block
 func (wb *WorkBlock) UpdateActivity(activityTime time.Time) {
-	wb.LastActivity = activityTime
+	// Ensure activity time is not before the work block start time
+	if activityTime.Before(wb.StartTime) {
+		// If activity time is before start time, use start time instead
+		wb.LastActivity = wb.StartTime
+	} else {
+		wb.LastActivity = activityTime
+	}
 }
 
 // IsInactive checks if the work block has been inactive for more than 5 minutes
@@ -86,19 +101,64 @@ func (wb *WorkBlock) IsInactive(currentTime time.Time) bool {
 	return currentTime.Sub(wb.LastActivity) > 5*time.Minute
 }
 
+/**
+ * AGENT:     daemon-core
+ * TRACE:     CLAUDE-CORE-018
+ * CONTEXT:   Enhanced Finalize method with comprehensive timing validation
+ * REASON:    Work block finalization must ensure all timing relationships are valid for accurate duration
+ * CHANGE:    Added validation to ensure endTime is not before StartTime, handle edge cases.
+ * PREVENTION:Always validate timing relationships during work block finalization
+ * RISK:      High - Invalid finalization could cause negative durations and corrupt billing data
+ */
 // Finalize completes the work block and calculates duration
 func (wb *WorkBlock) Finalize(endTime time.Time) {
+	// Ensure end time is not before start time
+	if endTime.Before(wb.StartTime) {
+		// If end time is before start time, use start time as end time (0 duration)
+		endTime = wb.StartTime
+	}
+	
 	wb.EndTime = &endTime
 	wb.IsActive = false
-	wb.DurationSeconds = int64(endTime.Sub(wb.StartTime).Seconds())
+	
+	// Calculate duration safely
+	duration := endTime.Sub(wb.StartTime)
+	if duration < 0 {
+		// Defensive programming: ensure duration is never negative
+		wb.DurationSeconds = 0
+	} else {
+		wb.DurationSeconds = int64(duration.Seconds())
+	}
 }
 
+/**
+ * AGENT:     daemon-core
+ * TRACE:     CLAUDE-CORE-016
+ * CONTEXT:   Fixed Duration() method to handle edge cases and prevent negative durations
+ * REASON:    Duration calculations must never return negative values which could corrupt billing logic
+ * CHANGE:    Added validation to ensure duration is never negative, use StartTime as fallback.
+ * PREVENTION:Always validate time relationships and handle edge cases in duration calculations
+ * RISK:      High - Negative durations could cause billing calculation errors
+ */
 // Duration returns the current duration of the work block
 func (wb *WorkBlock) Duration() time.Duration {
 	if wb.EndTime != nil {
-		return wb.EndTime.Sub(wb.StartTime)
+		duration := wb.EndTime.Sub(wb.StartTime)
+		if duration < 0 {
+			// Edge case: EndTime before StartTime, return 0
+			return 0
+		}
+		return duration
 	}
-	return wb.LastActivity.Sub(wb.StartTime)
+	
+	// For active work blocks, calculate duration from start to last activity
+	duration := wb.LastActivity.Sub(wb.StartTime)
+	if duration < 0 {
+		// Edge case: LastActivity before StartTime, return 0
+		// This should not happen with fixed startNewWorkBlock(), but defensive programming
+		return 0
+	}
+	return duration
 }
 
 /**

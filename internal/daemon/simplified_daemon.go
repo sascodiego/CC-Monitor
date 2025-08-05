@@ -41,7 +41,7 @@ func NewSimplifiedDaemon(log arch.Logger) *SimplifiedDaemon {
 	return &SimplifiedDaemon{
 		logger:     log,
 		statusFile: "/tmp/claude-monitor-status.json",
-		pidFile:    "/var/run/claude-monitor.pid",
+		pidFile:    "/tmp/claude-monitor.pid",
 		ctx:        ctx,
 		cancel:     cancel,
 	}

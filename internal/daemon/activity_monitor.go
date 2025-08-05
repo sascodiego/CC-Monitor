@@ -97,6 +97,7 @@ type EnhancedDaemon struct {
 	inactivityTimeout   time.Duration
 	activityHistory     []ActivityIndicator
 	connectionTracker   map[string]*ConnectionInfo
+	persistence         *SimplePersistence  // Add persistence
 	baselineConnections int
 	minActivityThreshold int64
 	patternAnalyzer     *TrafficPatternAnalyzer
@@ -220,10 +221,18 @@ func (hep *HTTPEventProcessor) Reset() {
 
 func NewEnhancedDaemon(log arch.Logger) *EnhancedDaemon {
 	ctx, cancel := context.WithCancel(context.Background())
+	
+	// Initialize persistence
+	persistence, err := NewSimplePersistence("/var/lib/claude-monitor/claude.db")
+	if err != nil {
+		log.Error("Failed to initialize persistence, continuing without database", "error", err)
+		persistence = nil
+	}
+	
 	return &EnhancedDaemon{
 		logger:            log,
 		statusFile:        "/tmp/claude-monitor-status.json",
-		pidFile:           "/var/run/claude-monitor.pid",
+		pidFile:           "/tmp/claude-monitor.pid",
 		ctx:               ctx,
 		cancel:            cancel,
 		inactivityTimeout: 5 * time.Minute, // 5-minute inactivity timeout
@@ -232,6 +241,7 @@ func NewEnhancedDaemon(log arch.Logger) *EnhancedDaemon {
 		connectionTracker: make(map[string]*ConnectionInfo),
 		baselineConnections: -1, // Initialize to detect baseline
 		minActivityThreshold: 200, // Minimum 200 bytes for real activity
+		persistence:       persistence, // Add persistence
 		patternAnalyzer: &TrafficPatternAnalyzer{
 			keepaliveThreshold: 100,  // 100 bytes threshold for keepalive
 			burstThreshold:     2048, // 2KB threshold for burst activity
@@ -939,8 +949,16 @@ func (ed *EnhancedDaemon) processActivityState() {
 				// Start new work block
 				ed.startNewWorkBlock()
 			} else {
-				// Update existing work block activity
-				ed.currentWorkBlock.UpdateActivity(ed.lastRealActivity)
+				// Update existing work block activity with validation
+				if ed.lastRealActivity.Before(ed.currentWorkBlock.StartTime) {
+					ed.logger.Error("lastRealActivity is before work block start time, using start time",
+						"lastRealActivity", ed.lastRealActivity,
+						"workBlockStartTime", ed.currentWorkBlock.StartTime,
+						"blockID", ed.currentWorkBlock.ID)
+					ed.currentWorkBlock.UpdateActivity(ed.currentWorkBlock.StartTime)
+				} else {
+					ed.currentWorkBlock.UpdateActivity(ed.lastRealActivity)
+				}
 			}
 		} else {
 			// Inactive period (> 5 minutes since last real activity)
@@ -964,30 +982,81 @@ func (ed *EnhancedDaemon) startNewSession() {
 		IsActive:  true,
 	}
 	
+	// Save session to database
+	if ed.persistence != nil {
+		sessionRecord := SessionRecord{
+			SessionID: ed.currentSession.ID,
+			StartTime: ed.currentSession.StartTime,
+			EndTime:   ed.currentSession.EndTime,
+			IsActive:  ed.currentSession.IsActive,
+		}
+		if err := ed.persistence.SaveSession(sessionRecord); err != nil {
+			ed.logger.Error("Failed to save session to database", "error", err, "sessionID", ed.currentSession.ID)
+		}
+	}
+	
 	ed.logger.Info("New session started with enhanced monitoring", 
 		"sessionID", ed.currentSession.ID,
 		"endTime", ed.currentSession.EndTime)
 }
 
+/**
+ * AGENT:     daemon-core
+ * TRACE:     CLAUDE-CORE-015
+ * CONTEXT:   Fixed work block creation timing bug where lastActivity could be before startTime
+ * REASON:    lastActivity must never be before startTime to prevent negative duration calculations
+ * CHANGE:    Ensure lastActivity is at least equal to startTime when creating new work blocks.
+ * PREVENTION:Always validate timing relationships in work block creation and activity updates
+ * RISK:      High - Incorrect timing could cause negative durations and billing calculation errors
+ */
 func (ed *EnhancedDaemon) startNewWorkBlock() {
 	now := time.Now()
+	
+	// Ensure lastActivity is not before the work block start time
+	lastActivity := ed.lastRealActivity
+	if lastActivity.Before(now) {
+		// If last activity was before now, use now as the start of this work block
+		lastActivity = now
+		ed.logger.Debug("Adjusted lastActivity to work block start time", 
+			"originalLastActivity", ed.lastRealActivity,
+			"adjustedLastActivity", lastActivity)
+	}
+	
 	ed.currentWorkBlock = &domain.WorkBlock{
 		ID:           uuid.New().String(),
 		SessionID:    ed.currentSession.ID,
 		StartTime:    now,
-		LastActivity: ed.lastRealActivity,
+		LastActivity: lastActivity,
 		IsActive:     true,
 	}
 	
 	ed.logger.Info("New work block started", 
 		"blockID", ed.currentWorkBlock.ID,
-		"sessionID", ed.currentSession.ID)
+		"sessionID", ed.currentSession.ID,
+		"startTime", now,
+		"lastActivity", lastActivity)
 }
 
 func (ed *EnhancedDaemon) finalizeCurrentWorkBlock() {
 	if ed.currentWorkBlock != nil {
 		// Use last real activity time, not current time
 		ed.currentWorkBlock.Finalize(ed.lastRealActivity)
+		
+		// Save work block to database
+		if ed.persistence != nil {
+			blockRecord := WorkBlockRecord{
+				BlockID:      ed.currentWorkBlock.ID,
+				SessionID:    ed.currentWorkBlock.SessionID,
+				StartTime:    ed.currentWorkBlock.StartTime,
+				EndTime:      ed.currentWorkBlock.EndTime,
+				DurationSecs: int(ed.currentWorkBlock.Duration().Seconds()),
+				IsActive:     false,
+			}
+			if err := ed.persistence.SaveWorkBlock(blockRecord); err != nil {
+				ed.logger.Error("Failed to save work block to database", "error", err, "blockID", ed.currentWorkBlock.ID)
+			}
+		}
+		
 		ed.logger.Info("Work block finalized", 
 			"blockID", ed.currentWorkBlock.ID,
 			"duration", ed.currentWorkBlock.Duration(),
@@ -999,6 +1068,20 @@ func (ed *EnhancedDaemon) finalizeCurrentSession() {
 	if ed.currentSession != nil {
 		ed.finalizeCurrentWorkBlock()
 		ed.currentSession.IsActive = false
+		
+		// Save finalized session to database
+		if ed.persistence != nil {
+			sessionRecord := SessionRecord{
+				SessionID: ed.currentSession.ID,
+				StartTime: ed.currentSession.StartTime,
+				EndTime:   ed.currentSession.EndTime,
+				IsActive:  false,
+			}
+			if err := ed.persistence.SaveSession(sessionRecord); err != nil {
+				ed.logger.Error("Failed to save finalized session to database", "error", err, "sessionID", ed.currentSession.ID)
+			}
+		}
+		
 		ed.logger.Info("Session finalized", "sessionID", ed.currentSession.ID)
 		ed.currentSession = nil
 		ed.currentWorkBlock = nil
