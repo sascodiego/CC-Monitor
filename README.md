@@ -60,27 +60,35 @@ Claude Monitor is a comprehensive work hour tracking and productivity analysis s
 
 ## 📦 Installation
 
-### Prerequisites
-- **Go 1.21+** - Required for compilation
-- **Linux Kernel 4.14+** - For eBPF support
-- **Root privileges** - Required for kernel-level monitoring
-- **LLVM/Clang** - For eBPF program compilation (optional)
-
-### Quick Start
+### One-Command Installation ⚡
 
 ```bash
-# Clone the repository
-git clone https://github.com/your-org/claude-monitor.git
-cd claude-monitor
-
-# Install dependencies
-make deps
-
-# Build the system
+# Clone and install in one command
+git clone https://github.com/sascodiego/CC-Monitor.git
+cd CC-Monitor
 make build
+sudo ./bin/claude-monitor-basic install
+```
 
-# Install binaries (requires sudo)
-sudo make install
+**That's it! Zero configuration required.** 🎉
+
+### What the install command does:
+- ✅ Creates all necessary directories
+- ✅ Generates configuration files  
+- ✅ Sets up systemd service
+- ✅ Initializes database
+- ✅ Starts monitoring automatically
+
+### Prerequisites
+- **Linux System** (Ubuntu 20.04+, Debian 11+, WSL2)
+- **Go 1.21+** - For building ([Install Go](https://golang.org/doc/install))
+- **sudo access** - For system installation
+
+### Alternative: User-Only Installation
+
+```bash
+# Install for current user only (no system service)
+./bin/claude-monitor-basic install --user
 ```
 
 ### Development Build

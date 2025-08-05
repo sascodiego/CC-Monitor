@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/claude-monitor/claude-monitor/internal/arch"
-	"github.com/claude-monitor/claude-monitor/internal/cli"
 	"github.com/claude-monitor/claude-monitor/internal/domain"
 )
 

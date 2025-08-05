@@ -313,5 +313,3 @@ func (whc *WorkHourComponents) GetThisWeeksSummary() (*domain.WorkWeek, error) {
 	
 	return whc.Service.GetWeeklyWorkSummary(weekStart)
 }
-
-import "time"

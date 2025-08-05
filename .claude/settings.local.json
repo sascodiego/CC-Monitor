@@ -16,7 +16,11 @@
       "Bash(go test:*)",
       "Bash(cat:*)",
       "Bash(ls:*)",
-      "WebFetch(domain:docs.anthropic.com)"
+      "WebFetch(domain:docs.anthropic.com)",
+      "Bash(git config:*)",
+      "Bash(CGO_ENABLED=1 go build -ldflags=\"-s -w\" -o bin/claude-monitor-basic ./cmd/claude-monitor)",
+      "Bash(pgrep:*)",
+      "Bash(jq:*)"
     ],
     "deny": []
   }
