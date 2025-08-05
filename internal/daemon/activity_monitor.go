@@ -1088,15 +1088,42 @@ func (ed *EnhancedDaemon) finalizeCurrentSession() {
 	}
 }
 
+/**
+ * AGENT:     daemon-core  
+ * TRACE:     CLAUDE-CORE-019
+ * CONTEXT:   Fixed work block duration calculation in status output to show elapsed time for active blocks
+ * REASON:    Active work blocks should show elapsed time from start, not frozen lastActivity duration
+ * CHANGE:    Calculate durationSeconds dynamically for active work blocks in status JSON.
+ * PREVENTION:Always recalculate duration for active blocks at status generation time
+ * RISK:      Medium - Incorrect duration display could confuse users about actual work time
+ */
 func (ed *EnhancedDaemon) writeStatus() {
 	now := time.Now()
 	timeSinceActivity := now.Sub(ed.lastRealActivity)
+	
+	// Create a copy of the current work block with corrected duration for active blocks
+	var currentWorkBlockStatus interface{}
+	if ed.currentWorkBlock != nil {
+		// Create a copy to avoid modifying the original
+		blockCopy := *ed.currentWorkBlock
+		if blockCopy.IsActive {
+			// For active work blocks, calculate duration from start time to now
+			elapsedDuration := now.Sub(blockCopy.StartTime)
+			blockCopy.DurationSeconds = int64(elapsedDuration.Seconds())
+			ed.logger.Debug("Active work block duration calculated", 
+				"blockID", blockCopy.ID,
+				"startTime", blockCopy.StartTime,
+				"currentTime", now,
+				"elapsedSeconds", blockCopy.DurationSeconds)
+		}
+		currentWorkBlockStatus = &blockCopy
+	}
 	
 	status := map[string]interface{}{
 		"daemonRunning":     ed.running,
 		"timestamp":         now,
 		"currentSession":    ed.currentSession,
-		"currentWorkBlock":  ed.currentWorkBlock,
+		"currentWorkBlock":  currentWorkBlockStatus,
 		"monitoringActive":  ed.running,
 		"lastRealActivity":  ed.lastRealActivity,
 		"timeSinceActivity": timeSinceActivity,

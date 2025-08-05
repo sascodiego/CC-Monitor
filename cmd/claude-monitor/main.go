@@ -261,7 +261,17 @@ func showStatus() {
 				
 				if status.CurrentWorkBlock.IsActive {
 					fmt.Printf("\n⏱️  Current Work Block:\n")
-					fmt.Printf("   Duration: %d minutes\n", status.CurrentWorkBlock.DurationSeconds/60)
+					
+					// For active work blocks, calculate duration from start time to now
+					var durationMinutes int
+					if status.CurrentWorkBlock.IsActive {
+						elapsed := time.Since(status.CurrentWorkBlock.StartTime)
+						durationMinutes = int(elapsed.Minutes())
+					} else {
+						durationMinutes = status.CurrentWorkBlock.DurationSeconds / 60
+					}
+					
+					fmt.Printf("   Duration: %d minutes\n", durationMinutes)
 					fmt.Printf("   Active: %s\n", map[bool]string{true: "Yes", false: "No"}[status.CurrentWorkBlock.IsActive])
 				}
 				
