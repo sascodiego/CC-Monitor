@@ -20,8 +20,33 @@
       "Bash(git config:*)",
       "Bash(CGO_ENABLED=1 go build -ldflags=\"-s -w\" -o bin/claude-monitor-basic ./cmd/claude-monitor)",
       "Bash(pgrep:*)",
-      "Bash(jq:*)"
+      "Bash(jq:*)",
+      "Bash(source \"$HOME/.cargo/env\")",
+      "Bash(rustc --version)",
+      "Bash(cargo --version)",
+      "Bash(cargo install:*)",
+      "Bash(cargo check:*)",
+      "Bash(cargo run:*)",
+      "Bash(rustc:*)",
+      "Bash(./test_simple)",
+      "Bash(./test_ebpf_check)",
+      "Bash(touch:*)",
+      "Bash(chmod:*)",
+      "Bash(./claude-monitor help)",
+      "Bash(./claude-monitor:*)",
+      "Bash(grep:*)",
+      "Bash(GOOS=linux go build -o claude-monitor-test ./cmd/claude-monitor/)",
+      "\"computer\"]",
+      "\"str_replace_editor\"",
+      "[\"bash\"",
+      "Bash(sed:*)",
+      "Bash(pkill:*)",
+      "Bash(CGO_ENABLED=1 go build -ldflags=\"-s -w\" -o bin/claude-monitor ./cmd/claude-monitor)",
+      "Bash(go run:*)",
+      "Bash(go list:*)",
+      "Bash(curl:*)"
     ],
     "deny": []
-  }
+  },
+  "disableAllHooks": true
 }

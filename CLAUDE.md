@@ -1,57 +1,133 @@
 # Claude Monitor System - Development Assistant
+# Go + KuzuDB + Hook Integration Architecture
 
-You are an expert systems programmer working on a high-performance monitoring system for Claude CLI sessions. This system combines Go, eBPF, and Kùzu graph database to track Claude usage patterns with minimal system overhead.
+You are an expert Go developer working on Claude Monitor, a user-friendly work hour tracking system for Claude Code users. This system uses Claude Code's hook system for accurate activity detection, Go for reliable backend processing, and KuzuDB for rich data analytics.
 
 ## Project Overview
 
-This is a monitoring daemon that tracks:
+This is a work hour tracking system that provides:
 1. **Claude Sessions**: 5-hour windows that begin with first user interaction
 2. **Work Hours**: Active usage time blocks with 5-minute inactivity timeout
+3. **Project Detection**: Automatic identification of the current project
+4. **Dual Time Metrics**: Both active work time and total schedule tracking
+5. **Rich Reporting**: Daily, weekly, monthly, and historical analytics
 
-## Architecture Stack
+## Architecture Stack - Go + KuzuDB
 
-- **Go**: Main daemon orchestration and CLI interface
-- **eBPF**: Kernel-level event capture (syscalls: execve, connect)
-- **Kùzu Graph Database**: Embedded graph storage for session/work relationships
-- **WSL Environment**: Designed for Windows Subsystem for Linux
+- **Go Language**: Reliable, fast development with excellent tooling
+- **Claude Code Hooks**: "claude-code action" command for precise activity detection
+- **KuzuDB Graph Database**: Complex relational queries for work pattern analysis
+- **Gorilla/mux**: HTTP server for receiving activity events
+- **Cobra CLI**: User-friendly command-line interface
+- **WSL Environment**: Optimized for Windows Subsystem for Linux
 
-## Key Technical Requirements
+## System Specifications
 
-### eBPF Component
-- Monitor `execve` syscalls to detect `claude` process launches
-- Monitor `connect` syscalls to api.anthropic.com for user interactions
-- Use ring buffers for high-performance kernel-userspace communication
-- Requires root privileges for kernel access
+| Component | Specification | Benefit |
+|-----------|--------------|----------|
+| Activity Detection | 100% accuracy via hooks | Perfect work tracking |
+| Project Detection | Automatic from working dir | No manual configuration |
+| Time Tracking | Dual metrics (active + total) | Complete work insights |
+| Session Management | 5-hour windows | Matches Claude usage |
+| Reporting | Daily/Weekly/Monthly | Comprehensive analytics |
 
-### Go Daemon
-- Single background process with concurrent goroutines
-- State management: `currentSessionEndTime`, `currentWorkBlockStartTime`, `lastActivityTime`
-- Session logic: 5-hour windows from first interaction
-- Work block logic: Continuous activity with 5-minute timeout threshold
+## Key System Components
 
-### Kùzu Database Schema
-```cypher
--- Nodes
-CREATE NODE TABLE Session(sessionID STRING, startTime TIMESTAMP, endTime TIMESTAMP, PRIMARY KEY (sessionID));
-CREATE NODE TABLE WorkBlock(blockID STRING, startTime TIMESTAMP, endTime TIMESTAMP, durationSeconds INT64, PRIMARY KEY (blockID));
-CREATE NODE TABLE Process(PID INT64, command STRING, startTime TIMESTAMP, PRIMARY KEY (startTime));
+### Claude Code Hook Command
+```go
+// Hook command executed before each Claude action
+package main
 
--- Relationships
-CREATE REL TABLE EXECUTED_DURING(FROM Process TO Session);
-CREATE REL TABLE CONTAINS(FROM Session TO WorkBlock);
+import (
+    "encoding/json"
+    "net/http"
+    "os"
+    "path/filepath"
+    "time"
+)
+
+type ActivityEvent struct {
+    Timestamp   time.Time `json:"timestamp"`
+    ProjectPath string    `json:"project_path"`
+    ProjectName string    `json:"project_name"`
+    UserID      string    `json:"user_id"`
+}
+
+func main() {
+    // Detect current project automatically
+    workingDir, _ := os.Getwd()
+    projectName := filepath.Base(workingDir)
+    
+    event := ActivityEvent{
+        Timestamp:   time.Now(),
+        ProjectPath: workingDir,
+        ProjectName: projectName,
+        UserID:      os.Getenv("USER"),
+    }
+    
+    // Send to daemon via HTTP
+    sendToDaemon(event)
+}
 ```
 
-### CLI Interface
-- `sudo ./claude-monitor start` - Start daemon
-- `./claude-monitor status` - Current session/work status
-- `./claude-monitor report [--period=daily|weekly|monthly]` - Usage reports
+### Go Daemon (HTTP Server)
+```go
+// Main daemon processing activity events
+package main
 
-## Development Guidelines
+import (
+    "encoding/json"
+    "net/http"
+    "time"
+    
+    "github.com/gorilla/mux"
+)
 
-1. **Performance First**: Minimize system overhead, especially in eBPF components
-2. **Security**: Never log sensitive data, run with appropriate privileges
-3. **Reliability**: Handle daemon lifecycle, prevent multiple instances
-4. **WSL Compatibility**: Ensure proper kernel access and file permissions
+type ClaudeMonitor struct {
+    sessionManager *SessionManager
+    workTracker    *WorkBlockTracker
+    database       *KuzuDBConnection
+}
+
+func (cm *ClaudeMonitor) handleActivity(w http.ResponseWriter, r *http.Request) {
+    var event ActivityEvent
+    json.NewDecoder(r.Body).Decode(&event)
+    
+    // Process the activity event
+    session := cm.sessionManager.GetOrCreateSession(event.Timestamp)
+    workBlock := cm.workTracker.UpdateWorkBlock(session.ID, event)
+    
+    // Save to database
+    cm.database.SaveActivity(session, workBlock, event)
+}
+```
+
+### KuzuDB Integration
+```go
+// Direct Go integration with KuzuDB
+package database
+
+import "github.com/kuzudb/kuzu-go"
+
+type KuzuDBConnection struct {
+    db *kuzu.Database
+    conn *kuzu.Connection
+}
+
+func (k *KuzuDBConnection) SaveActivity(session *Session, workBlock *WorkBlock, event ActivityEvent) error {
+    query := `
+        MERGE (u:User {id: $user_id})
+        MERGE (p:Project {name: $project_name, path: $project_path})
+        MERGE (s:Session {id: $session_id, start_time: $session_start})
+        MERGE (w:WorkBlock {id: $work_id, start_time: $work_start})
+        MERGE (u)-[:HAS_SESSION]->(s)
+        MERGE (s)-[:CONTAINS_WORK]->(w)
+        MERGE (w)-[:WORK_IN_PROJECT]->(p)
+    `
+    
+    return k.conn.Query(query, params)
+}
+```
 
 ## Business Logic Rules
 
@@ -65,131 +141,231 @@ CREATE REL TABLE CONTAINS(FROM Session TO WorkBlock);
 - Work blocks are contained within sessions
 - Final work block recorded on daemon shutdown
 
-## Code Quality Standards
+## Development Guidelines - Go Focus
 
-- Use `bpf2go` for eBPF program generation
-- Implement proper error handling and logging
-- Follow Go concurrency patterns with goroutines
-- Use official Kùzu Go library for database operations
-- Single static binary compilation target
+1. **Simplicity**: Use Go's straightforward syntax for maintainable code
+2. **Error Handling**: Explicit error checking with proper error propagation
+3. **Goroutines**: Use lightweight goroutines for concurrent processing
+4. **Standard Library**: Leverage Go's rich standard library for common tasks
+5. **Testing**: Use Go's built-in testing framework with table-driven tests
+
+## Code Quality Standards - Go Edition
 
 ### **MANDATORY COMMENT STANDARD**
 
-**BEFORE** each function, struct, or significant code block, you **MUST** add a contextual comment block.
-
-#### **Required Format:**
+**BEFORE** each function, struct, or significant code section, you **MUST** add:
 
 ```go
 /**
- * AGENT:     [Responsible agent name, e.g: ebpf-monitor, daemon-core, db-manager]
- * TRACE:     [Ticket/Issue ID, e.g: CLAUDE-123. If none: "N/A"]
- * CONTEXT:   [Brief description of purpose and context of the block/function]
- * REASON:    [Explain reasoning behind this specific implementation]
- * CHANGE:    [If modifying code, describe the change. If new: "Initial implementation."]
- * PREVENTION:[Key considerations or potential pitfalls for the future]
- * RISK:      [Risk Level (Low/Medium/High) and consequence if PREVENTION fails]
+ * CONTEXT:   [Purpose and context of the code block]
+ * INPUT:     [Expected input parameters and their constraints]
+ * OUTPUT:    [Expected output and possible error conditions]
+ * BUSINESS:  [Business logic rules this code implements]
+ * CHANGE:    [If modifying: describe change. If new: "Initial implementation."]
+ * RISK:      [Risk Level (Low/Medium/High) and mitigation strategy]
  */
 ```
 
-#### **Examples:**
+### Go-Specific Examples:
 
 ```go
 /**
- * AGENT:     ebpf-monitor
- * TRACE:     CLAUDE-001
- * CONTEXT:   eBPF program to capture execve syscalls for claude process detection
- * REASON:    Need kernel-level monitoring without performance overhead for process tracking
- * CHANGE:    Initial implementation.
- * PREVENTION:Ensure proper cleanup of eBPF programs on daemon shutdown to avoid kernel resource leaks
- * RISK:      Medium - Kernel resource exhaustion if programs not properly detached
+ * CONTEXT:   Session manager handling 5-hour window logic for Claude sessions
+ * INPUT:     Activity events with timestamps and project information
+ * OUTPUT:    Session object with start/end times, error if session creation fails
+ * BUSINESS:  New session starts when current session expired (5 hours since start)
+ * CHANGE:    Initial implementation with mutex for thread safety.
+ * RISK:      Low - Mutex contention possible under high load, but activity is typically low
  */
-func loadExecveTracker() error {
-    // Implementation...
+type SessionManager struct {
+    mu              sync.RWMutex
+    currentSession  *Session
+    sessionDuration time.Duration // 5 hours
+}
+
+func (sm *SessionManager) GetOrCreateSession(activityTime time.Time) *Session {
+    sm.mu.Lock()
+    defer sm.mu.Unlock()
+    
+    if sm.currentSession == nil || activityTime.Sub(sm.currentSession.StartTime) > sm.sessionDuration {
+        sm.currentSession = &Session{
+            ID:        generateSessionID(activityTime),
+            StartTime: activityTime,
+            EndTime:   activityTime.Add(sm.sessionDuration),
+        }
+    }
+    
+    return sm.currentSession
 }
 
 /**
- * AGENT:     daemon-core
- * TRACE:     CLAUDE-015
- * CONTEXT:   Session state management with 5-hour window logic
- * REASON:    Business requirement for precise session boundary tracking independent of activity
- * CHANGE:    Added concurrent-safe session state handling.
- * PREVENTION:Always use atomic operations or mutex for currentSessionEndTime access across goroutines
- * RISK:      High - Race conditions could cause session overlap or incorrect billing logic
+ * CONTEXT:   Work block tracker for detecting active work periods vs idle time
+ * INPUT:     Session ID, current activity timestamp, project name
+ * OUTPUT:    Updated work block with accurate timing, handles idle detection
+ * BUSINESS:  New work block starts after 5+ minutes of inactivity
+ * CHANGE:    Initial implementation with idle timeout logic.
+ * RISK:      Medium - Incorrect idle detection could skew work time calculations
  */
-type SessionManager struct {
-    mu                   sync.RWMutex
-    currentSessionEndTime time.Time
+func (wt *WorkBlockTracker) UpdateWorkBlock(sessionID string, timestamp time.Time, project string) *WorkBlock {
+    wt.mu.Lock()
+    defer wt.mu.Unlock()
+    
+    lastActivity, exists := wt.lastActivity[sessionID]
+    
+    // Start new work block if idle > 5 minutes or first activity
+    if !exists || timestamp.Sub(lastActivity) > 5*time.Minute {
+        workBlock := &WorkBlock{
+            ID:          generateWorkBlockID(sessionID, timestamp),
+            SessionID:   sessionID,
+            ProjectName: project,
+            StartTime:   timestamp,
+        }
+        wt.activeBlocks[sessionID] = workBlock
+    }
+    
+    // Update last activity time
+    wt.lastActivity[sessionID] = timestamp
+    
+    return wt.activeBlocks[sessionID]
 }
 ```
 
 ## Testing Strategy
 
-- Unit tests for business logic functions
-- Integration tests for eBPF event processing
-- Database schema validation
-- CLI command testing
-- WSL environment compatibility testing
+- **Table-driven tests** for business logic validation
+- **HTTP integration tests** for daemon API endpoints
+- **Database integration tests** with real KuzuDB instance
+- **CLI integration tests** with end-to-end scenarios
+- **Mock testing** for external dependencies
+- **Time-based testing** for session and work block logic
+- **Coverage target**: > 80% with go test -cover
 
-## Specialized Development Agents
+## Go Development Best Practices
 
-This project uses a specialized agent system where different agents handle specific domains of the system. **Always use the appropriate agent** when working on domain-specific tasks.
+This project follows Go best practices and idioms for maintainable, reliable code.
 
-### **Available Agents**
+### **Core Development Principles**
 
-#### **architecture-designer**
-- **Specialization**: System architecture, Go interfaces, eBPF/Go/Kùzu integration patterns
-- **Use when**: Designing overall architecture, defining component interfaces, establishing DI patterns, coordinating system integration
-- **Example**: "I need to use the architecture-designer agent to define the interfaces between eBPF events and Go daemon processing"
+#### **Go Simplicity**
+- **Philosophy**: "Simple, reliable, efficient"
+- **Approach**: Prefer clear, explicit code over clever optimizations
+- **Error Handling**: Always check and handle errors explicitly
+- **Documentation**: Use godoc-style comments for all public functions
+- **Example**: "Write straightforward Go code that any team member can understand"
 
-#### **ebpf-specialist** 
-- **Specialization**: eBPF programming, kernel-level monitoring, syscall tracing, ring buffer optimization
-- **Use when**: Writing eBPF programs, optimizing kernel-userspace communication, handling eBPF resource management
-- **Example**: "I need to use the ebpf-specialist agent to implement syscall monitoring for claude process detection"
+#### **Concurrent Safety**
+- **Specialization**: Goroutines and channel-based communication
+- **Approach**: Use sync.Mutex for shared state, channels for communication
+- **Testing**: Test concurrent code with race detector (-race flag)
+- **Monitoring**: Use context.Context for cancellation and timeouts
+#### **Database Integration**
+- **Specialization**: KuzuDB graph database with Go
+- **Approach**: Use official Go driver for KuzuDB
+- **Focus**: Cypher queries, schema design, transaction management
+- **Testing**: Integration tests with real database instances
+- **Example**: "Design graph schema for session-work-project relationships"
 
-#### **daemon-core**
-- **Specialization**: Go daemon orchestration, business logic, session management, work block tracking, concurrency
-- **Use when**: Implementing session/work block logic, managing goroutines, handling daemon lifecycle, coordinating business rules
-- **Example**: "I need to use the daemon-core agent to implement the 5-hour session window logic with proper concurrency handling"
+#### **CLI Development**
+- **Specialization**: Command-line interface with Cobra
+- **Approach**: User-friendly commands with clear help text
+- **Focus**: Beautiful output formatting, progress indicators
+- **Testing**: End-to-end CLI testing scenarios
+- **Example**: "Create intuitive commands for daily/weekly/monthly reports"
 
-#### **database-manager**
-- **Specialization**: Kùzu graph database, Cypher queries, schema design, transaction management, performance optimization
-- **Use when**: Designing database schema, writing Cypher queries, implementing transactions, optimizing database performance
-- **Example**: "I need to use the database-manager agent to optimize the reporting queries and implement proper transaction boundaries"
+#### **HTTP Server Design**
+- **Specialization**: RESTful API design with gorilla/mux
+- **Approach**: Simple, reliable HTTP endpoints
+- **Focus**: Request validation, error handling, middleware
+- **Testing**: HTTP integration tests with test servers
+- **Example**: "Design /activity endpoint for receiving hook events"
 
-#### **cli-interface**
-- **Specialization**: CLI commands, user experience, argument parsing, output formatting, interactive features
-- **Use when**: Creating CLI commands, improving user interface, implementing reporting formats, handling user interaction
-- **Example**: "I need to use the cli-interface agent to design intuitive CLI commands for daemon control and status reporting"
-
-### **Agent Selection Guidelines**
-
-1. **Identify the domain** of your task before requesting help
-2. **Use the specific agent** that matches your domain
-3. **Reference the agent** explicitly in your request
-4. **Provide context** relevant to the agent's specialization
-
-### **Agent Coordination**
-
-Agents are designed to work together:
-- `architecture-designer` defines interfaces that other agents implement
-- `ebpf-specialist` provides events that `daemon-core` processes  
-- `daemon-core` coordinates with `database-manager` for persistence
-- `cli-interface` integrates with all components for user interaction
-
-### **Comment Standard by Agent**
-
-Each agent follows the mandatory comment standard with agent-specific examples:
+### **Comment Examples for Go Code**
 
 ```go
 /**
- * AGENT:     [Use the specific agent name: architecture-designer, ebpf-specialist, daemon-core, database-manager, cli-interface]
- * TRACE:     [Ticket/Issue ID, e.g: CLAUDE-123. If none: "N/A"]
- * CONTEXT:   [Brief description of purpose and context of the block/function]
- * REASON:    [Explain reasoning behind this specific implementation]
- * CHANGE:    [If modifying code, describe the change. If new: "Initial implementation."]
- * PREVENTION:[Key considerations or potential pitfalls for the future]
- * RISK:      [Risk Level (Low/Medium/High) and consequence if PREVENTION fails]
+ * CONTEXT:   HTTP endpoint for receiving activity events from Claude Code hooks
+ * INPUT:     JSON ActivityEvent with timestamp, project info, user ID
+ * OUTPUT:    HTTP 200 on success, HTTP 400 on invalid JSON, HTTP 500 on processing error
+ * BUSINESS:  Processes activity to update sessions and work blocks
+ * CHANGE:    Initial implementation with basic validation and error handling.
+ * RISK:      Low - Input validation prevents most issues, database errors logged
  */
+
+/**
+ * AGENT:     rust-async-engineer
+ * TRACE:     CLAUDE-RS-200
+ * CONTEXT:   Bounded channel for backpressure management
+ * REASON:    Prevent memory exhaustion from unbounded event queue
+ * CHANGE:    Initial Rust implementation with explicit backpressure.
+ * PREVENTION:Monitor channel capacity and adjust based on load testing
+ * RISK:      Medium - Event loss if channel fills during spike
+ */
+
+/**
+ * AGENT:     rust-ffi-specialist
+ * TRACE:     CLAUDE-RS-300
+ * CONTEXT:   Safe wrapper for KuzuDB C API with RAII cleanup
+ * REASON:    Ensure database resources are properly released
+ * CHANGE:    Initial FFI implementation with Drop trait.
+ * RISK:      Low - Input validation prevents most issues, database errors logged
+ */
+func (cm *ClaudeMonitor) handleActivity(w http.ResponseWriter, r *http.Request) {
+    var event ActivityEvent
+    
+    if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
+        http.Error(w, "Invalid JSON format", http.StatusBadRequest)
+        return
+    }
+    
+    // Validate required fields
+    if event.ProjectName == "" || event.Timestamp.IsZero() {
+        http.Error(w, "Missing required fields", http.StatusBadRequest)
+        return
+    }
+    
+    // Process the activity event
+    if err := cm.processActivity(event); err != nil {
+        log.Printf("Error processing activity: %v", err)
+        http.Error(w, "Internal server error", http.StatusInternalServerError)
+        return
+    }
+    
+    w.WriteHeader(http.StatusOK)
+    json.NewEncoder(w).Encode(map[string]string{"status": "processed"})
+}
 ```
 
-When working on this project, prioritize system reliability, data accuracy, and minimal performance impact. The system must operate continuously in the background without affecting the user's Claude CLI experience. **Always use the appropriate specialized agent for domain-specific work.**
+## System Goals
+
+### Go Implementation Targets
+- **Activity Detection**: 100% accuracy via Claude Code hooks
+- **Response Time**: < 1 second for all CLI commands
+- **Database Queries**: < 100ms for reporting queries
+- **Hook Overhead**: < 50ms per Claude Code action
+- **Memory Usage**: < 100MB resident set size
+- **User Experience**: Intuitive CLI with beautiful output
+
+## Implementation Checklist
+
+- [ ] Claude Code hook command ("claude-code action")
+- [ ] Go HTTP daemon for processing events
+- [ ] KuzuDB integration with Go driver
+- [ ] Session management (5-hour windows)
+- [ ] Work block tracking (5-minute idle detection)
+- [ ] CLI with Cobra framework
+- [ ] Beautiful output formatting
+- [ ] Historical reporting features
+- [ ] Testing suite with real workflow scenarios
+- [ ] Documentation and user guides
+
+## Important Development Notes
+
+1. **Hook Integration**: Ensure "claude-code action" executes reliably before each Claude action
+2. **Project Detection**: Use working directory to automatically identify current project
+3. **Time Accuracy**: Precise timestamp handling for session and work block calculations
+4. **Error Recovery**: Graceful handling of daemon unavailability with local file fallback
+5. **User Experience**: Prioritize clear, actionable CLI output over technical metrics
+
+When working on this project, leverage Go's strengths: simplicity, reliability, and excellent tooling. The hook-based approach provides perfect accuracy while the graph database enables rich analytics and reporting.
+
+**Focus on user value: accurate work tracking with beautiful, actionable reports.**

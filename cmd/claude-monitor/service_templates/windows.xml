@@ -1,0 +1,53 @@
+<!-- Claude Monitor Windows Service Configuration Template -->
+<!-- This template is embedded in the binary and customized during installation -->
+
+<service>
+    <id>{{.Name}}</id>
+    <name>{{.DisplayName}}</name>
+    <description>{{.Description}}</description>
+    <executable>{{.ExecutablePath}}</executable>
+    <arguments>{{range .Arguments}}{{.}} {{end}}</arguments>
+    
+    <!-- Service configuration -->
+    <startmode>{{.StartMode}}</startmode>
+    <account>{{.ServiceAccount}}</account>
+    {{if .Password}}<password>{{.Password}}</password>{{end}}
+    
+    <!-- Working directory -->
+    {{if .WorkingDir}}<workingdirectory>{{.WorkingDir}}</workingdirectory>{{end}}
+    
+    <!-- Dependencies -->
+    {{if .Dependencies}}
+    <dependencies>
+        {{range .Dependencies}}<depend>{{.}}</depend>
+        {{end}}
+    </dependencies>
+    {{end}}
+    
+    <!-- Environment variables -->
+    {{if .Environment}}
+    <env>
+        {{range $key, $value := .Environment}}<env name="{{$key}}" value="{{$value}}"/>
+        {{end}}
+    </env>
+    {{end}}
+    
+    <!-- Logging configuration -->
+    <logpath>{{.WorkingDir}}\logs</logpath>
+    <logmode>roll-by-size</logmode>
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>8</keepFiles>
+    
+    <!-- Service recovery -->
+    {{if .RestartOnFailure}}
+    <onfailure action="restart" delay="{{.RestartDelay}}" />
+    <onfailure action="restart" delay="{{.RestartDelay}}" />
+    <onfailure action="none" />
+    <resetfailure>24 hour</resetfailure>
+    {{end}}
+    
+    <!-- Security -->
+    <serviceaccount>{{.ServiceAccount}}</serviceaccount>
+    <priority>Normal</priority>
+    <stoptimeout>30 sec</stoptimeout>
+</service>

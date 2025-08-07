@@ -1,8 +1,9 @@
-# Claude Monitor System - Informe Técnico y Plan de Implementación
+# Claude Monitor System - Arquitectura Técnica
+# Sistema de Monitoreo con Go + KuzuDB
 
 ## 1. Resumen Ejecutivo
 
-Este documento detalla la arquitectura y el diseño técnico de un sistema de monitoreo de alto rendimiento, diseñado para ejecutarse como un servicio (daemon) en segundo plano en un entorno de Windows Subsystem for Linux (WSL). El sistema tiene dos objetivos principales:
+Este documento detalla la arquitectura y el diseño técnico de Claude Monitor, un sistema de monitoreo de actividad para Claude Code basado en Go y KuzuDB. Diseñado para ejecutarse como un servicio (daemon) en segundo plano en un entorno de Windows Subsystem for Linux (WSL), el sistema utiliza hooks de Claude Code para detectar actividad y realizar seguimiento preciso de horarios de trabajo.
 
 ### Objetivos del Sistema
 
@@ -10,456 +11,446 @@ Este documento detalla la arquitectura y el diseño técnico de un sistema de mo
 
 2. **Seguimiento de Horas de Trabajo Reales**: Cuantificar el tiempo de uso activo de la herramienta de línea de comandos claude, proporcionando al usuario informes detallados sobre sus horas laborales efectivas.
 
-### Stack Tecnológico
+### Stack Tecnológico - Arquitectura Go + KuzuDB
 
-La arquitectura propuesta se basa en una pila tecnológica moderna y de alto rendimiento, seleccionada para garantizar una mínima sobrecarga del sistema, máxima fidelidad de los datos y una base de datos robusta para el análisis:
+Claude Monitor utiliza un stack tecnológico simple y confiable:
 
-- **Go (Golang)**: Como lenguaje principal para el desarrollo del daemon de orquestación, elegido por su simplicidad, su potente modelo de concurrencia y su capacidad para compilar binarios estáticos y eficientes.
+- **Go Language**: Desarrollo rápido y confiable con excelente tooling
+- **KuzuDB Graph Database**: Base de datos de grafos para relaciones complejas
+- **Claude Code Hooks**: Sistema de detección de actividad mediante hooks configurados
+- **CLI con Cobra**: Interfaz de línea de comandos user-friendly
 
-- **eBPF (extended Berkeley Packet Filter)**: Como motor de captura de datos a nivel de kernel, permitiendo una observabilidad no intrusiva y de alto rendimiento de la actividad de los procesos y la red, sin afectar el rendimiento de la aplicación monitoreada.
+### Ventajas de la Arquitectura Go + KuzuDB
 
-- **Kùzu Graph Database**: Como la columna vertebral de persistencia de datos, utilizando un modelo de grafo embebido que representa de forma nativa las complejas interconexiones entre procesos, sesiones y bloques de trabajo.
+| Aspecto | Especificación | Beneficio |
+|---------|----------------|-----------|
+| Desarrollo | Rápido y simple | Time-to-market reducido |
+| Detección de actividad | Hook-based | Precisión del 100% |
+| Memoria | < 100MB RSS | Impacto mínimo en sistema |
+| CPU | < 2% average | Casi imperceptible |
+| Mantenimiento | Go estándar | Fácil de mantener |
+| Datos | Graph database | Consultas relacionales complejas |
 
-## 2. Arquitectura General del Sistema
-
-El sistema opera como un pipeline de datos continuo, desde la captura de eventos a nivel de kernel hasta su almacenamiento y posterior análisis.
+## 2. Arquitectura del Sistema
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Claude Monitor Architecture                   │
-└─────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────┐
+│             Claude Monitor Architecture (Go + KuzuDB)           │
+└───────────────────────────────────────────────────────────────┘
 
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│  Kernel Layer   │    │   User Space    │    │   Storage       │
-│     (eBPF)      │    │   (Go Daemon)   │    │   (Kùzu DB)    │
+│   Claude Code    │    │   Go Daemon     │    │   KuzuDB        │
+│   (Hooks)        │    │  (Processor)    │    │  (Storage)      │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
          │                       │                       │
          ▼                       ▼                       ▼
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│ execve/connect  │───▶│ Event Processor │───▶│ Graph Storage   │
-│ Syscall Hooks   │    │ Business Logic  │    │ Session/Work    │
-│ Ring Buffer     │    │ State Manager   │    │ Relationships   │
+│ Hook Execution  │───▶│ Session Manager │───▶│ Graph Relations │
+│ "claude-code    │    │ Work Block      │    │ Session Data    │
+│ action"         │    │ Tracker         │    │ Project Info    │
+│ Command         │    │ Timer Logic     │    │ Time Analytics  │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
                                 │
                                 ▼
                        ┌─────────────────┐
                        │   CLI Interface │
-                       │ Status/Reports  │
+                       │   (Go + Cobra)  │
                        └─────────────────┘
 ```
 
-### Capas del Sistema
+## 3. Componente 1: Sistema de Detección por Hooks de Claude Code
 
-1. **Capa de Captura (eBPF)**: Programas eBPF de bajo nivel se adjuntan a puntos de anclaje (hooks) específicos en el kernel de Linux para monitorizar eventos clave del sistema de forma pasiva.
+### 3.1. Sistema de Hooks de Claude Code
 
-2. **Capa de Orquestación (Daemon en Go)**: Un daemon de larga duración escrito en Go carga y gestiona los programas eBPF. Recibe un flujo de eventos del kernel, aplica la lógica de negocio para interpretar las sesiones y las horas de trabajo, y gestiona el estado del sistema.
+Claude Monitor utiliza el sistema de hooks de Claude Code para detección precisa:
+- **Hook Configuration**: Comando ejecutado antes de cada acción de Claude
+- **Precision**: 100% de precisión en detección de actividad
+- **Project Detection**: Identificación automática del proyecto actual
+- **Timestamp Accuracy**: Registro exacto de tiempo de actividad
 
-3. **Capa de Persistencia (Kùzu)**: El daemon de Go se comunica con una base de datos de grafos Kùzu embebida, escribiendo los datos procesados en un fichero local para su almacenamiento persistente.
+### 3.2. Configuración del Hook de Claude Code
 
-4. **Capa de Interfaz (CLI en Go)**: El mismo binario de Go proporciona una interfaz de línea de comandos que permite al usuario iniciar el daemon, consultar el estado actual y generar informes históricos consultando la base de datos Kùzu.
+**Claude Code Hook Configuration:**
 
-## 3. Componente 1: El Agente de Captura eBPF (Los Sentidos)
-
-La base de la recolección de datos es eBPF, elegido por su capacidad para observar el comportamiento del sistema de forma segura y con una sobrecarga de rendimiento casi nula.
-
-### 3.1. Syscalls Monitoreadas
-
-**execve** (y sus variantes clone/fork): Esta es la llamada al sistema que ejecuta un nuevo programa. Al monitorear este evento, podemos detectar de manera fiable cuándo se inicia un proceso con el nombre `claude`. El programa eBPF capturará el Identificador de Proceso (PID) y el nombre del comando.
-
-**connect**: Esta llamada al sistema se utiliza para iniciar una conexión TCP. Dado que la herramienta claude es una CLI, cualquier interacción significativa (enviar un prompt, recibir una respuesta) requerirá una comunicación de red con los servidores de Anthropic. Rastrear la llamada connect desde un proceso claude a los puntos finales de la API de Anthropic es nuestro proxy de alta fidelidad para detectar una "interacción del usuario".
-
-### 3.2. Implementación Técnica (eBPF en C con bpf2go)
-
-El flujo de trabajo recomendado utiliza la herramienta bpf2go de la biblioteca cilium/ebpf, que permite escribir el programa eBPF en C y generar automáticamente el código Go necesario para cargarlo y gestionarlo.
-
-**claude_tracker.c** (Programa eBPF conceptual):
-
-```c
-#include <vmlinux.h>
-#include <bpf/bpf_helpers.h>
-#include <bpf/bpf_core_read.h>
-
-// Estructura para enviar eventos a espacio de usuario
-struct event {
-    u32 pid;
-    char comm[16];
-    u32 event_type; // 1 for exec, 2 for connect
-};
-
-// Mapa de Ring Buffer para comunicación con Go
-struct {
-    __uint(type, BPF_MAP_TYPE_RINGBUF);
-    __uint(max_entries, 256 * 1024);
-} events SEC(".maps");
-
-// Hook para la llamada al sistema execve
-SEC("tp/syscalls/sys_enter_execve")
-int handle_execve(struct trace_event_raw_sys_enter *ctx) {
-    struct event *e;
-    e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
-    if (!e) {
-        return 0;
-    }
-
-    e->pid = bpf_get_current_pid_tgid() >> 32;
-    bpf_get_current_comm(&e->comm, sizeof(e->comm));
-    e->event_type = 1; // Tipo de evento: exec
-
-    bpf_ringbuf_submit(e, 0);
-    return 0;
-}
-
-// Hook para la llamada al sistema connect
-SEC("tp/syscalls/sys_enter_connect")
-int handle_connect(struct trace_event_raw_sys_enter *ctx) {
-    struct event *e;
-    e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
-    if (!e) {
-        return 0;
-    }
-    
-    e->pid = bpf_get_current_pid_tgid() >> 32;
-    bpf_get_current_comm(&e->comm, sizeof(e->comm));
-    e->event_type = 2; // Tipo de evento: connect
-
-    bpf_ringbuf_submit(e, 0);
-    return 0;
-}
-
-char LICENSE SEC("license") = "GPL";
+```bash
+# Configuración del hook en Claude Code
+# Este comando se ejecuta antes de cada acción de Claude
+claude-code action
 ```
 
-## 4. Componente 2: El Daemon de Orquestación en Go (El Cerebro)
-
-El daemon es el núcleo lógico del sistema. Escrito en Go, es responsable de gestionar el ciclo de vida de los programas eBPF, procesar los eventos entrantes y aplicar las reglas de negocio para las sesiones y las horas de trabajo.
-
-### 4.1. Estructura del Daemon
-
-El daemon se ejecutará como un único proceso en segundo plano. Utilizará goroutines para manejar tareas concurrentes de manera eficiente:
-
-- Una goroutine principal para la inicialización y la gestión de señales de apagado
-- Una goroutine para leer y procesar eventos del ringbuf de eBPF
-- Una goroutine para escanear periódicamente los procesos del sistema y mantener una lista actualizada de los PIDs de claude
-
-### 4.2. Lógica de Estado y Reglas de Negocio
-
-El daemon mantendrá el estado actual en memoria y lo persistirá en Kùzu.
-
-#### 4.2.1. Registro de Sesiones de Claude
-
-La lógica para las sesiones es estrictamente basada en el tiempo y se activa por la primera interacción detectada.
-
-**Estado Requerido**: `currentSessionEndTime` (timestamp)
-
-**Flujo Lógico**:
-1. El daemon detecta un evento connect de un proceso claude a un punto final de la API de Anthropic
-2. Obtiene la hora actual: `now = time.Now()`
-3. Comprueba si hay una sesión activa: `if now > currentSessionEndTime`
-4. Si no hay sesión activa (la condición es verdadera):
-   - Se registra el inicio de una nueva sesión
-   - Se actualiza el estado: `currentSessionEndTime = now.Add(5 * time.Hour)`
-   - Se crea un nuevo nodo Session en la base de datos Kùzu
-5. Si hay una sesión activa (la condición es falsa):
-   - La interacción se considera parte de la sesión existente
-   - No se realiza ninguna acción sobre el estado de la sesión
-
-#### 4.2.2. Seguimiento de Horas de Trabajo
-
-La lógica para las horas de trabajo se basa en la actividad continua, con un umbral de inactividad para definir los bloques de trabajo.
-
-**Estado Requerido**: `currentWorkBlockStartTime` (timestamp), `lastActivityTime` (timestamp)  
-**Constante**: `WORK_BLOCK_TIMEOUT = 5 * time.Minute`
-
-**Flujo Lógico**:
-1. El daemon detecta un evento connect de un proceso claude (una "interacción")
-2. Obtiene la hora actual: `now = time.Now()`
-3. Comprueba si es el inicio de un nuevo bloque de trabajo: `if now.Sub(lastActivityTime) > WORK_BLOCK_TIMEOUT`
-4. Si es un nuevo bloque de trabajo (la condición es verdadera):
-   - Si `currentWorkBlockStartTime` no es nulo, significa que el bloque de trabajo anterior ha finalizado
-   - Se calcula su duración `lastActivityTime.Sub(currentWorkBlockStartTime)` y se persiste un nodo WorkBlock en Kùzu, relacionándolo con la sesión actual
-   - Se inicia un nuevo bloque: `currentWorkBlockStartTime = now`
-5. En todos los casos:
-   - Se actualiza la última actividad: `lastActivityTime = now`
-6. Al apagar el daemon de forma controlada, se registrará el bloque de trabajo final
-
-## 5. Componente 3: Persistencia con Kùzu (La Memoria)
-
-Para el almacenamiento de datos, se ha elegido Kùzu, una base de datos de grafos embebida. Este modelo es conceptualmente superior para este caso de uso, ya que los eventos del sistema son inherentemente un grafo de entidades interconectadas.
-
-### 5.1. Diseño del Esquema del Grafo
-
-El esquema se definirá utilizando el DDL de Cypher para garantizar la integridad de los datos:
-
-```cypher
--- Definición de Nodos (Entidades)
-CREATE NODE TABLE Session(
-    sessionID STRING,
-    startTime TIMESTAMP,
-    endTime TIMESTAMP,
-    PRIMARY KEY (sessionID)
-);
-
-CREATE NODE TABLE WorkBlock(
-    blockID STRING,
-    startTime TIMESTAMP,
-    endTime TIMESTAMP,
-    durationSeconds INT64,
-    PRIMARY KEY (blockID)
-);
-
-CREATE NODE TABLE Process(
-    PID INT64,
-    command STRING,
-    startTime TIMESTAMP,
-    PRIMARY KEY (startTime)
-);
-
--- Definición de Relaciones (Conexiones)
-CREATE REL TABLE EXECUTED_DURING(
-    FROM Process TO Session
-);
-
-CREATE REL TABLE CONTAINS(
-    FROM Session TO WorkBlock
-);
-```
-
-### 5.2. Interacción con la Base de Datos desde Go
-
-El daemon utilizará la biblioteca oficial de Kùzu para Go para interactuar con el fichero de la base de datos.
-
-Ejemplo de inserción de datos (conceptual):
+**Estructura del Comando Hook:**
 
 ```go
 package main
 
 import (
-    "github.com/kuzudb/go-kuzu"
     "fmt"
+    "os"
+    "path/filepath"
     "time"
+    "encoding/json"
+    "net/http"
+    "bytes"
 )
 
-func logNewSession(conn *kuzu.Connection, sessionID string, startTime time.Time) error {
-    query := `CREATE (s:Session {
-        sessionID: $sessionID, 
-        startTime: $startTime, 
-        endTime: $endTime
-    })`
-    
-    params := map[string]interface{}{
-        "sessionID": sessionID,
-        "startTime": startTime,
-        "endTime":   startTime.Add(5 * time.Hour),
-    }
+type ActivityEvent struct {
+    Timestamp   time.Time `json:"timestamp"`
+    ProjectPath string    `json:"project_path"`
+    ProjectName string    `json:"project_name"`
+    WorkingDir  string    `json:"working_dir"`
+    UserID      string    `json:"user_id"`
+    SessionID   string    `json:"session_id"`
+    EventType   string    `json:"event_type"`
+}
 
-    _, err := conn.Query(query, params)
-    return err
+func main() {
+    // Detectar proyecto actual
+    workingDir, _ := os.Getwd()
+    projectName := filepath.Base(workingDir)
+    
+    // Crear evento de actividad
+    event := ActivityEvent{
+        Timestamp:   time.Now(),
+        ProjectPath: workingDir,
+        ProjectName: projectName,
+        WorkingDir:  workingDir,
+        UserID:      os.Getenv("USER"),
+        SessionID:   generateSessionID(),
+        EventType:   "claude_action",
+    }
+    
+    // Enviar al daemon local
+    sendToDaemon(event)
+}
+
+func sendToDaemon(event ActivityEvent) {
+    jsonData, err := json.Marshal(event)
+    if err != nil {
+        return
+    }
+    
+    // Enviar al daemon local via HTTP
+    resp, err := http.Post("http://localhost:8080/activity", 
+                          "application/json", 
+                          bytes.NewBuffer(jsonData))
+    if err != nil {
+        // Fallback: escribir a archivo local
+        writeToLocalFile(event)
+        return
+    }
+    defer resp.Body.Close()
+}
+
+func writeToLocalFile(event ActivityEvent) {
+    homeDir, _ := os.UserHomeDir()
+    logFile := filepath.Join(homeDir, ".claude-monitor", "activity.log")
+    
+    file, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+    if err != nil {
+        return
+    }
+    defer file.Close()
+    
+    jsonData, _ := json.Marshal(event)
+    file.WriteString(string(jsonData) + "\n")
+}
+
+func generateSessionID() string {
+    // Lógica para determinar sesión de 5 horas
+    return fmt.Sprintf("session_%d", time.Now().Unix())
 }
 ```
 
-## 6. Componente 4: Interfaz de Usuario y Reportes (La Voz)
+### 3.3. Daemon Go para Procesamiento de Eventos
 
-Toda la interacción del usuario se realizará a través de la línea de comandos. El binario compilado (claude-monitor) actuará como el punto de entrada para todas las operaciones.
+**Daemon HTTP Server en Go:**
 
-### 6.1. Comandos Disponibles
+```go
+package main
 
-**`sudo ./claude-monitor start`**: Inicia el daemon de monitoreo en segundo plano. Requerirá sudo para cargar los programas eBPF.
+import (
+    "encoding/json"
+    "log"
+    "net/http"
+    "time"
+    "context"
+    "github.com/gorilla/mux"
+)
 
-**`./claude-monitor status`**: Consulta la base de datos y muestra el estado actual.
+type ClaudeMonitorDaemon struct {
+    sessionManager *SessionManager
+    workTracker    *WorkBlockTracker
+    database       *KuzuDBConnection
+}
 
-Salida de ejemplo si no hay sesión activa:
+type ActivityEvent struct {
+    Timestamp   time.Time `json:"timestamp"`
+    ProjectPath string    `json:"project_path"`
+    ProjectName string    `json:"project_name"`
+    WorkingDir  string    `json:"working_dir"`
+    UserID      string    `json:"user_id"`
+    SessionID   string    `json:"session_id"`
+    EventType   string    `json:"event_type"`
+}
+
+func (d *ClaudeMonitorDaemon) handleActivity(w http.ResponseWriter, r *http.Request) {
+    var event ActivityEvent
+    if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
+        http.Error(w, "Invalid JSON", http.StatusBadRequest)
+        return
+    }
+    
+    // Procesar evento de actividad
+    d.processActivityEvent(event)
+    
+    w.WriteHeader(http.StatusOK)
+    w.Write([]byte("Event processed"))
+}
+
+func (d *ClaudeMonitorDaemon) processActivityEvent(event ActivityEvent) {
+    // Determinar sesión activa (ventana de 5 horas)
+    session := d.sessionManager.GetOrCreateSession(event.Timestamp)
+    
+    // Actualizar bloque de trabajo (timeout de 5 minutos)
+    workBlock := d.workTracker.UpdateWorkBlock(session.ID, event.Timestamp, event.ProjectName)
+    
+    // Guardar en base de datos
+    d.database.SaveActivity(session, workBlock, event)
+}
+
+func main() {
+    daemon := &ClaudeMonitorDaemon{
+        sessionManager: NewSessionManager(),
+        workTracker:    NewWorkBlockTracker(),
+        database:       NewKuzuDBConnection(),
+    }
+    
+    router := mux.NewRouter()
+    router.HandleFunc("/activity", daemon.handleActivity).Methods("POST")
+    
+    log.Println("Claude Monitor Daemon started on :8080")
+    log.Fatal(http.ListenAndServe(":8080", router))
+}
 ```
-Estado de la Sesión de Claude: Inactiva
-Horas de Trabajo Hoy: 2h 15m
-```
 
-Salida de ejemplo si hay una sesión activa:
-```
-Estado de la Sesión de Claude: Activa
-La sesión finaliza a las: 19:45
-Horas de Trabajo Hoy: 3h 30m
-```
+## 4. Plan de Implementación Go + KuzuDB
 
-**`./claude-monitor report [--period=daily|weekly|monthly]`**: Genera un informe agregado del uso.
+### Fase 1: Hook Integration Setup (1-2 semanas)
+**Objetivo**: Configurar sistema de hooks de Claude Code
 
-Salida de ejemplo para `report --period=weekly`:
-```
---- Informe Semanal de Uso de Claude ---
-Período: 2025-08-04 a 2025-08-10
+**Tareas**:
+- [ ] Crear comando "claude-code action" en Go
+- [ ] Configurar hook en Claude Code settings
+- [ ] Implementar detección de proyecto actual
+- [ ] Setup daemon HTTP server básico
+- [ ] Testing de hook execution
 
-Sesiones Utilizadas: 8
+**Métricas de Éxito**:
+- Hook se ejecuta en cada acción de Claude
+- Detección correcta de proyecto
+- Comunicación exitosa con daemon
 
-Horas de Trabajo por Día:
-- Lunes:    4h 30m
-- Martes:   5h 15m
-- Miércoles: 2h 05m
-- Jueves:   6h 45m
-- Viernes:  3h 10m
+### Fase 2: Core Business Logic (2-3 semanas)
+**Objetivo**: Implementar lógica de sesiones y bloques de trabajo
 
-Total Horas de Trabajo Semanales: 21h 45m
-```
+**Tareas**:
+- [ ] Session Manager con ventanas de 5 horas
+- [ ] Work Block Tracker con timeout de 5 minutos
+- [ ] Timer logic para inicio/fin de trabajo
+- [ ] Event processing pipeline
+- [ ] Memory management y persistence
 
-### 6.2. Consultas Cypher para Reportes
+**Entregables**:
+- Sesiones funcionando correctamente
+- Work blocks con detección de idle
+- Cálculo de horas reales vs horas totales
 
-Los informes se generan ejecutando consultas Cypher sobre la base de datos Kùzu.
+### Fase 3: KuzuDB Integration (2-3 semanas)
+**Objetivo**: Integrar base de datos de grafos
 
-Consulta para el total de horas de trabajo diarias:
+**Tareas**:
+- [ ] Setup KuzuDB con Go driver
+- [ ] Diseñar schema de grafos (Sessions, WorkBlocks, Projects)
+- [ ] Implementar repository patterns
+- [ ] Query optimization para reportes
+- [ ] Data persistence y recovery
+
+**Beneficios Esperados**:
+- Consultas relacionales complejas
+- Análisis de patrones de trabajo
+- Reportes detallados por proyecto
+
+### Fase 4: CLI User Interface (1-2 semanas)
+**Objetivo**: Interfaz CLI user-friendly
+
+**Tareas**:
+- [ ] CLI con Cobra framework
+- [ ] Comandos para ver actividad diaria/semanal/mensual
+- [ ] Reportes con formato atractivo
+- [ ] Export a diferentes formatos
+- [ ] Shell completions
+
+### Fase 5: Production Deployment (1 semana)
+**Objetivo**: Deploy y documentación
+
+**Tareas**:
+- [ ] Build system y distribución
+- [ ] Documentación de usuario
+- [ ] Scripts de instalación
+- [ ] Testing de integración completo
+- [ ] Launch preparation
+
+## 5. Componentes del Sistema Go
+
+### Hook Command ("claude-code action")
+**Responsabilidad**: Detección de actividad de Claude Code
+- Ejecutarse antes de cada acción de Claude
+- Detectar proyecto actual automáticamente
+- Enviar eventos al daemon via HTTP
+- Fallback a archivo local si daemon no disponible
+
+### Go Daemon (HTTP Server)
+**Responsabilidad**: Procesamiento central de eventos
+- Recibir eventos de actividad via HTTP API
+- Implementar lógica de sesiones de 5 horas
+- Gestionar bloques de trabajo con timeout de 5 minutos
+- Persistir datos en KuzuDB
+
+### Session Manager
+**Responsabilidad**: Gestión de sesiones de Claude
+- Crear sesiones que duran exactamente 5 horas
+- Determinar cuando iniciar nueva sesión
+- Tracking de primera interacción
+- Manejo de overlapping entre sesiones
+
+### Work Block Tracker
+**Responsabilidad**: Seguimiento de bloques de trabajo activo
+- Detectar inicio de trabajo (primera actividad)
+- Detectar fin de trabajo (5 minutos sin actividad)
+- Calcular duración real de trabajo
+- Asociar bloques con proyectos específicos
+
+## 6. Funcionalidades del Sistema
+
+### Datos Core Recolectados
+- **Timestamp exacto** de cada actividad de Claude
+- **Proyecto activo** donde se realiza la actividad
+- **Duración real** de trabajo (tiempo activo vs idle)
+- **Horarios de trabajo** (hora inicio y fin de trabajo)
+- **Sesiones de Claude** (ventanas de 5 horas)
+
+### Reportes Disponibles
+- **Vista diaria**: Actividad del día actual
+- **Vista semanal**: Resumen de la semana actual
+- **Vista mensual**: Actividad del mes actual
+- **Historial**: Consulta de meses anteriores
+- **Por proyecto**: Análisis de tiempo por proyecto específico
+
+## 7. Arquitectura de Datos (KuzuDB)
+
+### Schema de Grafos
 ```cypher
-MATCH (wb:WorkBlock)
-WHERE wb.startTime >= date_trunc('day', now())
-RETURN sum(wb.durationSeconds)
+// Nodos
+CREATE NODE TABLE User(id STRING, name STRING, PRIMARY KEY(id));
+CREATE NODE TABLE Project(id STRING, name STRING, path STRING, PRIMARY KEY(id));
+CREATE NODE TABLE Session(id STRING, start_time TIMESTAMP, end_time TIMESTAMP, PRIMARY KEY(id));
+CREATE NODE TABLE WorkBlock(id STRING, start_time TIMESTAMP, end_time TIMESTAMP, duration_seconds INT, PRIMARY KEY(id));
+
+// Relaciones
+CREATE REL TABLE WORKS_ON(FROM User TO Project);
+CREATE REL TABLE HAS_SESSION(FROM User TO Session);
+CREATE REL TABLE CONTAINS_WORK(FROM Session TO WorkBlock);
+CREATE REL TABLE WORK_IN_PROJECT(FROM WorkBlock TO Project);
 ```
 
-Consulta para el número de sesiones en la última semana:
+### Consultas de Ejemplo
 ```cypher
-MATCH (s:Session)
-WHERE s.startTime >= now() - interval '7 days'
-RETURN count(s)
+// Horas trabajadas hoy
+MATCH (u:User)-[:HAS_SESSION]->(s:Session)-[:CONTAINS_WORK]->(w:WorkBlock)
+WHERE s.start_time >= today()
+RETURN SUM(w.duration_seconds) / 3600 as hours_today;
+
+// Actividad por proyecto esta semana
+MATCH (p:Project)<-[:WORK_IN_PROJECT]-(w:WorkBlock)
+WHERE w.start_time >= startOfWeek()
+RETURN p.name, SUM(w.duration_seconds) / 3600 as hours;
 ```
 
-## 7. Plan de Implementación
+## 8. Interfaz CLI User-Friendly
 
-### 7.1. Fase 1: Arquitectura Base y eBPF
-**Agente Responsable**: `architecture-designer` + `ebpf-specialist`
-**Duración Estimada**: 2-3 semanas
-
-**Tareas**:
-- [ ] Configurar estructura de proyecto Go con módulos
-- [ ] Implementar programas eBPF básicos (execve, connect)
-- [ ] Configurar bpf2go para generación automática de código
-- [ ] Implementar ring buffer y comunicación kernel-userspace
-- [ ] Pruebas básicas de captura de eventos
-
-**Entregables**:
-- Programas eBPF funcionales
-- Integración Go-eBPF básica
-- Captura de eventos claude
-
-### 7.2. Fase 2: Daemon Core y Lógica de Negocio
-**Agente Responsable**: `daemon-core`
-**Duración Estimada**: 2-3 semanas
-
-**Tareas**:
-- [ ] Implementar estructura del daemon principal
-- [ ] Desarrollar lógica de sesiones (5 horas)
-- [ ] Implementar seguimiento de work blocks (5 min timeout)
-- [ ] Gestión de estado y concurrencia
-- [ ] Manejo de señales y shutdown graceful
-
-**Entregables**:
-- Daemon funcional con lógica de negocio
-- Gestión correcta de sesiones y work blocks
-- Tests unitarios para lógica crítica
-
-### 7.3. Fase 3: Persistencia y Base de Datos
-**Agente Responsable**: `database-manager`
-**Duración Estimada**: 2 semanas
-
-**Tareas**:
-- [ ] Configurar Kùzu database embebida
-- [ ] Implementar esquema de grafos
-- [ ] Desarrollar repositorios para Session y WorkBlock
-- [ ] Implementar transacciones y manejo de errores
-- [ ] Queries para reportes básicos
-
-**Entregables**:
-- Base de datos funcional
-- Operaciones CRUD completas
-- Queries de reporting optimizadas
-
-### 7.4. Fase 4: CLI e Interfaz de Usuario
-**Agente Responsable**: `cli-interface`
-**Duración Estimada**: 2 semanas
-
-**Tareas**:
-- [ ] Implementar comandos CLI con Cobra
-- [ ] Desarrollar comando `start` con verificación de privilegios
-- [ ] Implementar comando `status` con formateo
-- [ ] Desarrollar sistema de reportes con múltiples formatos
-- [ ] Configuración y validación
-
-**Entregables**:
-- CLI completa y funcional
-- Documentación de comandos
-- Sistema de reportes robusto
-
-### 7.5. Fase 5: Testing e Integración
-**Agente Responsable**: Todos los agentes
-**Duración Estimada**: 1-2 semanas
-
-**Tareas**:
-- [ ] Tests de integración end-to-end
-- [ ] Pruebas de rendimiento y carga
-- [ ] Validación en entorno WSL
-- [ ] Documentación completa
-- [ ] Optimizaciones finales
-
-**Entregables**:
-- Sistema completamente funcional
-- Suite de tests completa
-- Documentación de usuario
-
-## 8. Despliegue y Ejecución en WSL
-
-El sistema está diseñado para ser autocontenido y fácil de desplegar en un entorno WSL.
-
-### 8.1. Compilación
-El proyecto Go se compila en un único binario estático:
+### Comandos Principales
 ```bash
-go build -o claude-monitor
+# Ver actividad de hoy
+claude-monitor today
+
+# Ver actividad de la semana
+claude-monitor week
+
+# Ver actividad del mes
+claude-monitor month
+
+# Ver mes específico
+claude-monitor month --month=2024-12
+
+# Ver por proyecto
+claude-monitor project --name="Mi Proyecto"
+
+# Status del daemon
+claude-monitor status
+
+# Iniciar/parar daemon
+claude-monitor start
+claude-monitor stop
 ```
 
-### 8.2. Ejecución del Daemon
-Para iniciar el monitoreo, el usuario ejecutará el binario con sudo:
-```bash
-sudo ./claude-monitor start
+### Output Example
+```
+📅 Actividad de Hoy - 2024-08-05
+┌──────────────────────────────────────────────────┐
+│ 🕰️  Horario de Trabajo: 09:15 - 17:30 (8h 15m)     │
+│ ⏱️  Tiempo Activo: 6h 45m                          │
+│ ⏸️  Tiempo Idle: 1h 30m                           │
+└──────────────────────────────────────────────────┘
+
+📁 Actividad por Proyecto:
+• Claude-Monitor        4h 30m  (66.7%)
+• Documentation        1h 45m  (25.9%)
+• Code Review          30m     (7.4%)
+
+📊 Bloques de Trabajo:
+09:15-11:30  Claude-Monitor    (2h 15m)
+11:45-13:00  Documentation     (1h 15m)
+14:00-16:15  Claude-Monitor    (2h 15m)
+16:15-16:45  Code Review       (30m)
+16:45-17:30  Documentation     (45m)
 ```
 
-El daemon se desvinculará de la terminal y continuará ejecutándose. Gestionará su propio PID para evitar múltiples instancias.
+## 9. Conclusión
 
-### 8.3. Permisos
-La ejecución como root es un requisito indispensable, ya que las operaciones de eBPF (cargar programas en el kernel, adjuntar a tracepoints) requieren privilegios de superusuario.
+El sistema Claude Monitor con arquitectura Go + KuzuDB + Hooks proporciona:
 
-## 9. Consideraciones Técnicas
+1. **Detección Precisa**: 100% de precisión usando hooks de Claude Code
+2. **Datos Ricos**: Información detallada de proyectos y patrones de trabajo
+3. **User Experience**: CLI intuitiva con reportes atractivos
+4. **Flexibilidad**: Consultas complejas gracias a KuzuDB
+5. **Simplicidad**: Arquitectura simple y mantenible en Go
 
-### 9.1. Seguridad
-- Validación de entrada en todos los puntos
-- Manejo seguro de privilegios root
-- Logging de eventos de seguridad
-- Protección contra inyección en queries
+### Capacidades del Sistema
 
-### 9.2. Rendimiento
-- Overhead mínimo del sistema (<1% CPU)
-- Uso eficiente de memoria
-- Optimización de queries de base de datos
-- Filtrado a nivel de kernel para reducir eventos
-
-### 9.3. Fiabilidad
-- Recuperación automática de errores
-- Persistencia de estado crítico
-- Manejo robusto de fallos de red
-- Logs detallados para debugging
-
-### 9.4. Mantenibilidad
-- Código modular y bien documentado
-- Tests automatizados
-- Monitoreo de métricas internas
-- Documentación técnica completa
-
-## 10. Conclusión
-
-La arquitectura propuesta presenta una solución robusta, eficiente y técnicamente avanzada para el monitoreo del uso de la herramienta claude. La combinación de Go para una lógica de aplicación concurrente y mantenible, eBPF para una captura de datos a nivel de kernel precisa y de bajo impacto, y Kùzu para una persistencia de datos conceptualmente alineada y de alto rendimiento, da como resultado un sistema que cumple con todos los requisitos del usuario.
-
-El diseño del daemon garantiza un funcionamiento automático y continuo, mientras que la interfaz de línea de comandos proporciona al usuario un control total y acceso a informes valiosos sobre sus patrones de trabajo y el uso de las sesiones de Claude.
+- **Seguimiento de Sesiones**: Ventanas de 5 horas desde primera interacción
+- **Detección de Trabajo Activo**: Bloques de trabajo con timeout de 5 minutos
+- **Análisis por Proyecto**: Tiempo dedicado a cada proyecto automáticamente
+- **Métricas Duales**: Horas reales trabajadas + horario de inicio/fin
+- **Reportes Flexibles**: Vista diaria, semanal, mensual e histórica
 
 ### Próximos Pasos
 
-1. **Revisar y aprobar el plan de implementación**
-2. **Configurar el entorno de desarrollo**
-3. **Comenzar con la Fase 1: Arquitectura Base y eBPF**
-4. **Establecer reuniones de revisión semanales**
-5. **Definir métricas de éxito para cada fase**
+1. **Implementar hook "claude-code action"**
+2. **Desarrollar daemon Go con HTTP API**
+3. **Integrar KuzuDB para persistencia**
+4. **Crear CLI con reportes user-friendly**
+5. **Testing y deployment**
 
 ---
 
-**Documento de Referencia**: Este archivo debe ser utilizado como guía principal para la implementación del sistema Claude Monitor. Consultar con los agentes especializados correspondientes para cada fase del desarrollo.
+**Documento de Referencia**: Este archivo define la estrategia de migración hacia Rust con enfoque eBPF-First. Consultar con los agentes especializados de Rust para cada fase del desarrollo.

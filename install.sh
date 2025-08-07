@@ -1,9 +1,15 @@
 #!/bin/bash
 
-# Claude Monitor - One-Click Installation Script
-# This script automatically sets up Claude Monitor with zero configuration required
+/**
+ * CONTEXT:   Installation script for Claude Monitor system with hook integration
+ * INPUT:     System environment, user preferences, and installation options
+ * OUTPUT:    Complete Claude Monitor installation with daemon and hook
+ * BUSINESS:  Provide one-click installation for seamless Claude Code integration
+ * CHANGE:    Initial installation script with system detection and configuration
+ * RISK:      Medium - System installation affects user environment and permissions
+ */
 
-set -e  # Exit on any error
+set -e
 
 # Colors for output
 RED='\033[0;31m'
@@ -13,278 +19,585 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-INSTALL_DIR="/usr/local/bin"
-CONFIG_DIR="/etc/claude-monitor"
-DATA_DIR="/var/lib/claude-monitor"
-LOG_DIR="/var/log/claude-monitor"
-SERVICE_NAME="claude-monitor"
+CLAUDE_MONITOR_VERSION="${CLAUDE_MONITOR_VERSION:-1.0.0}"
+INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
+CONFIG_DIR="$HOME/.claude-monitor"
+SERVICE_USER="${SERVICE_USER:-$USER}"
 
-echo -e "${BLUE}🚀 Claude Monitor - One-Click Installation${NC}"
-echo -e "${BLUE}═══════════════════════════════════════════${NC}"
-echo ""
+# Installation options
+INSTALL_DAEMON=true
+INSTALL_HOOK=true
+INSTALL_SERVICE=false
+CONFIGURE_CLAUDE=false
+START_DAEMON=false
 
-# Check if running as root
-if [[ $EUID -ne 0 ]]; then
-   echo -e "${RED}❌ This script must be run as root${NC}"
-   echo "Please run: sudo ./install.sh"
-   exit 1
-fi
+print_header() {
+    echo -e "${BLUE}"
+    echo "╔══════════════════════════════════════════════════════════╗"
+    echo "║                   Claude Monitor v$CLAUDE_MONITOR_VERSION                   ║"
+    echo "║           Complete Work Hour Tracking System            ║"
+    echo "║                                                          ║"
+    echo "║  • Claude Code Hook Integration                          ║"
+    echo "║  • Automatic Project Detection                           ║"
+    echo "║  • Real-time Session & Work Block Tracking             ║"
+    echo "║  • KuzuDB Analytics & Reporting                         ║"
+    echo "╚══════════════════════════════════════════════════════════╝"
+    echo -e "${NC}"
+    echo
+}
 
-# Detect system
-if [[ -f /etc/os-release ]]; then
-    . /etc/os-release
-    OS=$NAME
-    VER=$VERSION_ID
-else
-    echo -e "${RED}❌ Cannot detect operating system${NC}"
-    exit 1
-fi
+print_step() {
+    echo -e "${BLUE}→${NC} $1"
+}
 
-echo -e "${GREEN}✅ Detected OS: $OS $VER${NC}"
+print_success() {
+    echo -e "${GREEN}✓${NC} $1"
+}
 
-# Check Go installation
-if ! command -v go &> /dev/null; then
-    echo -e "${RED}❌ Go is not installed${NC}"
-    echo "Please install Go 1.21+ first: https://golang.org/doc/install"
-    exit 1
-fi
+print_warning() {
+    echo -e "${YELLOW}⚠${NC} $1"
+}
 
-GO_VERSION=$(go version | cut -d' ' -f3 | sed 's/go//')
-echo -e "${GREEN}✅ Go version: $GO_VERSION${NC}"
+print_error() {
+    echo -e "${RED}✗${NC} $1" >&2
+}
 
-echo ""
-echo -e "${YELLOW}📦 Installing Claude Monitor...${NC}"
+print_info() {
+    echo -e "${YELLOW}ℹ${NC} $1"
+}
 
-# Step 1: Create all required directories
-echo -e "${BLUE}1. Creating system directories...${NC}"
-mkdir -p "$CONFIG_DIR"
-mkdir -p "$DATA_DIR"
-mkdir -p "$LOG_DIR"
-mkdir -p "$INSTALL_DIR"
+# System detection
+detect_system() {
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        OS="linux"
+        ARCH=$(uname -m)
+        if [[ -f /proc/version ]] && grep -q Microsoft /proc/version; then
+            PLATFORM="wsl"
+        else
+            PLATFORM="linux"
+        fi
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        OS="darwin"
+        ARCH=$(uname -m)
+        PLATFORM="macos"
+    elif [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "cygwin" ]]; then
+        OS="windows"
+        ARCH="amd64"
+        PLATFORM="windows"
+    else
+        print_error "Unsupported operating system: $OSTYPE"
+        exit 1
+    fi
 
-# Set proper permissions
-chown -R root:root "$CONFIG_DIR"
-chown -R $SUDO_USER:$SUDO_USER "$DATA_DIR" 2>/dev/null || chown -R root:root "$DATA_DIR"
-chown -R root:root "$LOG_DIR"
-chmod 755 "$CONFIG_DIR" "$DATA_DIR" "$LOG_DIR"
+    # Normalize architecture
+    case $ARCH in
+        x86_64) ARCH="amd64" ;;
+        arm64|aarch64) ARCH="arm64" ;;
+        *) 
+            print_error "Unsupported architecture: $ARCH"
+            exit 1
+            ;;
+    esac
 
-echo -e "${GREEN}   ✅ Directories created${NC}"
+    print_info "Detected system: $PLATFORM ($OS-$ARCH)"
+}
 
-# Step 2: Build binaries
-echo -e "${BLUE}2. Building Claude Monitor binaries...${NC}"
-echo "   Building enhanced daemon..."
-CGO_ENABLED=1 go build -ldflags="-s -w" -o "$INSTALL_DIR/claude-daemon-enhanced" ./cmd/claude-daemon-enhanced
-chmod +x "$INSTALL_DIR/claude-daemon-enhanced"
+# Check prerequisites
+check_prerequisites() {
+    print_step "Checking prerequisites..."
 
-echo "   Building CLI interface..."
-go build -ldflags="-s -w" -o "$INSTALL_DIR/claude-monitor" ./cmd/claude-monitor-basic
-chmod +x "$INSTALL_DIR/claude-monitor"
+    # Check if Go is installed
+    if ! command -v go &> /dev/null; then
+        print_error "Go is not installed. Please install Go 1.21 or later."
+        print_info "Visit: https://golang.org/dl/"
+        exit 1
+    fi
 
-echo "   Building simple daemon (backup)..."
-CGO_ENABLED=1 go build -ldflags="-s -w" -o "$INSTALL_DIR/claude-daemon-simple" ./cmd/claude-daemon-simple
-chmod +x "$INSTALL_DIR/claude-daemon-simple"
+    # Check Go version
+    GO_VERSION=$(go version | grep -oP 'go\K[0-9]+\.[0-9]+')
+    if [[ $(echo "$GO_VERSION 1.21" | tr ' ' '\n' | sort -V | head -n1) != "1.21" ]]; then
+        print_error "Go 1.21 or later is required. Found: $GO_VERSION"
+        exit 1
+    fi
 
-echo -e "${GREEN}   ✅ Binaries built and installed${NC}"
+    # Check if git is available (for version info)
+    if ! command -v git &> /dev/null; then
+        print_warning "Git not found. Build version info will be limited."
+    fi
 
-# Step 3: Create default configuration
-echo -e "${BLUE}3. Creating default configuration...${NC}"
-cat > "$CONFIG_DIR/config.yaml" << EOF
-# Claude Monitor Configuration - Auto-generated
-daemon:
-  log_level: INFO
-  database_path: $DATA_DIR/claude.db
-  status_file: /tmp/claude-monitor-status.json
-  pid_file: /var/run/claude-monitor.pid
+    # Check write permissions for install directory
+    if [[ ! -w "$INSTALL_DIR" ]]; then
+        if [[ $EUID -ne 0 ]]; then
+            print_warning "Installation directory $INSTALL_DIR requires sudo access"
+            NEED_SUDO=true
+        fi
+    fi
 
-monitoring:
-  session_duration: 5h        # 5-hour session windows
-  inactivity_timeout: 5m      # 5-minute work block timeout
-  update_interval: 5s         # Status update frequency
+    print_success "Prerequisites checked"
+}
 
-work_hours:
-  daily_target: 8h            # Daily work hour goal
-  weekly_target: 40h          # Weekly work hour goal
-  overtime_threshold: 8h      # Daily overtime threshold
-  rounding_method: nearest    # Time rounding (nearest, up, down)
-  rounding_interval: 15m      # Rounding interval (15m, 30m, 1h)
+# Parse command line arguments
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --daemon-only)
+                INSTALL_HOOK=false
+                shift
+                ;;
+            --hook-only)
+                INSTALL_DAEMON=false
+                shift
+                ;;
+            --install-service)
+                INSTALL_SERVICE=true
+                shift
+                ;;
+            --configure-claude)
+                CONFIGURE_CLAUDE=true
+                shift
+                ;;
+            --start-daemon)
+                START_DAEMON=true
+                shift
+                ;;
+            --install-dir)
+                INSTALL_DIR="$2"
+                shift 2
+                ;;
+            --version)
+                CLAUDE_MONITOR_VERSION="$2"
+                shift 2
+                ;;
+            --help)
+                show_help
+                exit 0
+                ;;
+            *)
+                print_error "Unknown option: $1"
+                show_help
+                exit 1
+                ;;
+        esac
+    done
+}
 
-export:
-  default_format: json        # Default export format
-  include_charts: true        # Include charts in reports
-  template: professional     # Report template
+show_help() {
+    echo "Claude Monitor Installation Script"
+    echo
+    echo "Usage: $0 [OPTIONS]"
+    echo
+    echo "Options:"
+    echo "  --daemon-only         Install only the daemon"
+    echo "  --hook-only          Install only the Claude Code hook"
+    echo "  --install-service    Install as system service (Linux/macOS)"
+    echo "  --configure-claude   Configure Claude Code hooks automatically"
+    echo "  --start-daemon       Start daemon after installation"
+    echo "  --install-dir DIR    Installation directory (default: $INSTALL_DIR)"
+    echo "  --version VER        Version to install (default: $CLAUDE_MONITOR_VERSION)"
+    echo "  --help               Show this help message"
+    echo
+    echo "Examples:"
+    echo "  $0                           # Install complete system"
+    echo "  $0 --hook-only              # Install only Claude Code hook"
+    echo "  $0 --install-service --start-daemon  # Install as service and start"
+    echo "  $0 --configure-claude       # Install and configure Claude Code"
+}
+
+# Build binaries
+build_binaries() {
+    print_step "Building Claude Monitor binaries..."
+
+    # Clean previous builds
+    make clean > /dev/null 2>&1 || true
+
+    # Build based on selection
+    if [[ "$INSTALL_DAEMON" == "true" && "$INSTALL_HOOK" == "true" ]]; then
+        make build-all VERSION="$CLAUDE_MONITOR_VERSION"
+    elif [[ "$INSTALL_DAEMON" == "true" ]]; then
+        make build-daemon VERSION="$CLAUDE_MONITOR_VERSION"
+    elif [[ "$INSTALL_HOOK" == "true" ]]; then
+        make build-hook VERSION="$CLAUDE_MONITOR_VERSION"
+    fi
+
+    print_success "Binaries built successfully"
+}
+
+# Install binaries
+install_binaries() {
+    print_step "Installing binaries to $INSTALL_DIR..."
+
+    # Create install directory if needed
+    if [[ $NEED_SUDO == "true" ]]; then
+        sudo mkdir -p "$INSTALL_DIR"
+    else
+        mkdir -p "$INSTALL_DIR"
+    fi
+
+    # Install daemon
+    if [[ "$INSTALL_DAEMON" == "true" && -f "bin/claude-daemon" ]]; then
+        if [[ $NEED_SUDO == "true" ]]; then
+            sudo cp bin/claude-daemon "$INSTALL_DIR/"
+            sudo chmod +x "$INSTALL_DIR/claude-daemon"
+        else
+            cp bin/claude-daemon "$INSTALL_DIR/"
+            chmod +x "$INSTALL_DIR/claude-daemon"
+        fi
+        print_success "Daemon installed: $INSTALL_DIR/claude-daemon"
+    fi
+
+    # Install hook
+    if [[ "$INSTALL_HOOK" == "true" && -f "bin/claude-monitor" ]]; then
+        if [[ $NEED_SUDO == "true" ]]; then
+            sudo cp bin/claude-monitor "$INSTALL_DIR/"
+            sudo chmod +x "$INSTALL_DIR/claude-monitor"
+        else
+            cp bin/claude-monitor "$INSTALL_DIR/"
+            chmod +x "$INSTALL_DIR/claude-monitor"
+        fi
+        print_success "Hook installed: $INSTALL_DIR/claude-monitor"
+    fi
+}
+
+# Setup configuration
+setup_configuration() {
+    print_step "Setting up configuration..."
+
+    # Create config directory
+    mkdir -p "$CONFIG_DIR"
+
+    # Create default configuration if it doesn't exist
+    if [[ ! -f "$CONFIG_DIR/config.json" ]]; then
+        cat > "$CONFIG_DIR/config.json" << EOF
+{
+  "enabled": true,
+  "daemon_url": "http://localhost:8080",
+  "timeout_ms": 100,
+  "log_level": "info",
+  "project_names": {},
+  "ignore_patterns": [
+    "*/tmp/*",
+    "*/node_modules/*",
+    "*/.git/*",
+    "*/target/*",
+    "*/build/*",
+    "*/dist/*"
+  ]
+}
 EOF
+        print_success "Default configuration created: $CONFIG_DIR/config.json"
+    else
+        print_info "Configuration file already exists: $CONFIG_DIR/config.json"
+    fi
 
-chmod 644 "$CONFIG_DIR/config.yaml"
-echo -e "${GREEN}   ✅ Configuration created${NC}"
+    # Create data directory
+    mkdir -p "$CONFIG_DIR/data"
+    
+    # Set proper permissions
+    chmod 755 "$CONFIG_DIR"
+    chmod 644 "$CONFIG_DIR/config.json" 2>/dev/null || true
+}
 
-# Step 4: Create systemd service
-echo -e "${BLUE}4. Setting up system service...${NC}"
-cat > "/etc/systemd/system/$SERVICE_NAME.service" << EOF
+# Install system service
+install_service() {
+    if [[ "$INSTALL_SERVICE" != "true" ]]; then
+        return
+    fi
+
+    print_step "Installing system service..."
+
+    case $PLATFORM in
+        linux|wsl)
+            # Create systemd service
+            SERVICE_FILE="/etc/systemd/system/claude-monitor.service"
+            sudo tee "$SERVICE_FILE" > /dev/null << EOF
 [Unit]
-Description=Claude Monitor Enhanced Daemon
-Documentation=https://github.com/sascodiego/CC-Monitor
+Description=Claude Monitor Daemon
+Documentation=https://github.com/claude-monitor/system
 After=network.target
 Wants=network.target
 
 [Service]
 Type=simple
-User=root
-Group=root
-ExecStart=$INSTALL_DIR/claude-daemon-enhanced
-Restart=always
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=claude-monitor
+User=$SERVICE_USER
+Group=$SERVICE_USER
+ExecStart=$INSTALL_DIR/claude-daemon -config $CONFIG_DIR/config.json
+ExecReload=/bin/kill -HUP \$MAINPID
+KillMode=process
+Restart=on-failure
+RestartSec=5s
 
 # Security settings
-NoNewPrivileges=true
+NoNewPrivileges=yes
+PrivateTmp=yes
 ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=$DATA_DIR $LOG_DIR /tmp
-PrivateTmp=false
+ProtectHome=read-only
+ReadWritePaths=$CONFIG_DIR
+
+# Environment
+Environment=HOME=$HOME
+Environment=USER=$SERVICE_USER
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# Reload systemd and enable service
-systemctl daemon-reload
-systemctl enable "$SERVICE_NAME"
-
-echo -e "${GREEN}   ✅ System service configured${NC}"
-
-# Step 5: Create convenience scripts
-echo -e "${BLUE}5. Creating convenience scripts...${NC}"
-
-# Start script
-cat > "$INSTALL_DIR/claude-monitor-start" << 'EOF'
-#!/bin/bash
-echo "🚀 Starting Claude Monitor..."
-sudo systemctl start claude-monitor
-sleep 2
-if systemctl is-active --quiet claude-monitor; then
-    echo "✅ Claude Monitor started successfully"
-    claude-monitor status
-else
-    echo "❌ Failed to start Claude Monitor"
-    sudo systemctl status claude-monitor
-fi
+            sudo systemctl daemon-reload
+            sudo systemctl enable claude-monitor
+            print_success "Systemd service installed and enabled"
+            ;;
+            
+        macos)
+            # Create launchd plist
+            PLIST_FILE="$HOME/Library/LaunchAgents/com.claude-monitor.daemon.plist"
+            mkdir -p "$HOME/Library/LaunchAgents"
+            
+            cat > "$PLIST_FILE" << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.claude-monitor.daemon</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$INSTALL_DIR/claude-daemon</string>
+        <string>-config</string>
+        <string>$CONFIG_DIR/config.json</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>$CONFIG_DIR/daemon.log</string>
+    <key>StandardErrorPath</key>
+    <string>$CONFIG_DIR/daemon.error.log</string>
+    <key>WorkingDirectory</key>
+    <string>$CONFIG_DIR</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>$HOME</string>
+        <key>USER</key>
+        <string>$USER</string>
+    </dict>
+</dict>
+</plist>
 EOF
 
-# Stop script
-cat > "$INSTALL_DIR/claude-monitor-stop" << 'EOF'
-#!/bin/bash
-echo "🛑 Stopping Claude Monitor..."
-sudo systemctl stop claude-monitor
-echo "✅ Claude Monitor stopped"
-EOF
+            launchctl load "$PLIST_FILE"
+            print_success "LaunchAgent installed and loaded"
+            ;;
+            
+        *)
+            print_warning "System service not supported on $PLATFORM"
+            ;;
+    esac
+}
 
-# Status script
-cat > "$INSTALL_DIR/claude-monitor-status" << 'EOF'
-#!/bin/bash
-if systemctl is-active --quiet claude-monitor; then
-    claude-monitor status
-else
-    echo "❌ Claude Monitor is not running"
-    echo "Start with: claude-monitor-start"
-fi
-EOF
-
-chmod +x "$INSTALL_DIR/claude-monitor-start"
-chmod +x "$INSTALL_DIR/claude-monitor-stop"
-chmod +x "$INSTALL_DIR/claude-monitor-status"
-
-echo -e "${GREEN}   ✅ Convenience scripts created${NC}"
-
-# Step 6: Initialize database and test
-echo -e "${BLUE}6. Initializing system...${NC}"
-
-# Create empty database file with proper permissions
-touch "$DATA_DIR/claude.db"
-chown $SUDO_USER:$SUDO_USER "$DATA_DIR/claude.db" 2>/dev/null || chown root:root "$DATA_DIR/claude.db"
-chmod 644 "$DATA_DIR/claude.db"
-
-# Test CLI
-echo "   Testing CLI interface..."
-if "$INSTALL_DIR/claude-monitor" --help > /dev/null 2>&1; then
-    echo -e "${GREEN}   ✅ CLI interface working${NC}"
-else
-    echo -e "${YELLOW}   ⚠️  CLI may need dependencies${NC}"
-fi
-
-echo -e "${GREEN}   ✅ System initialized${NC}"
-
-# Step 7: Final setup and start
-echo -e "${BLUE}7. Starting Claude Monitor service...${NC}"
-
-# Start the service
-systemctl start "$SERVICE_NAME"
-sleep 3
-
-# Check if service started successfully
-if systemctl is-active --quiet "$SERVICE_NAME"; then
-    echo -e "${GREEN}   ✅ Service started successfully${NC}"
-else
-    echo -e "${YELLOW}   ⚠️  Service may need manual start${NC}"
-fi
-
-echo ""
-echo -e "${GREEN}🎉 INSTALLATION COMPLETE!${NC}"
-echo -e "${GREEN}═══════════════════════════${NC}"
-echo ""
-echo -e "${BLUE}📋 Quick Start:${NC}"
-echo ""
-echo -e "${YELLOW}  # Check status${NC}"
-echo "  claude-monitor status"
-echo ""
-echo -e "${YELLOW}  # View work day${NC}"
-echo "  claude-monitor workhour workday status"
-echo ""
-echo -e "${YELLOW}  # Control service${NC}"
-echo "  claude-monitor-start    # Start monitoring"
-echo "  claude-monitor-stop     # Stop monitoring"
-echo "  claude-monitor-status   # Quick status check"
-echo ""
-echo -e "${BLUE}📁 Important Paths:${NC}"
-echo "  Binaries: $INSTALL_DIR/claude-*"
-echo "  Config:   $CONFIG_DIR/config.yaml"
-echo "  Data:     $DATA_DIR/"
-echo "  Logs:     $LOG_DIR/ (or journalctl -u claude-monitor)"
-echo ""
-echo -e "${BLUE}🔧 Service Management:${NC}"
-echo "  sudo systemctl start claude-monitor    # Start"
-echo "  sudo systemctl stop claude-monitor     # Stop"
-echo "  sudo systemctl restart claude-monitor  # Restart"
-echo "  sudo systemctl status claude-monitor   # Status"
-echo "  journalctl -u claude-monitor -f        # View logs"
-echo ""
-echo -e "${GREEN}✨ Claude Monitor is now ready to track your productivity!${NC}"
-echo -e "${GREEN}Just start using Claude CLI and the system will automatically begin monitoring.${NC}"
-echo ""
-
-# Final status check
-echo -e "${BLUE}📊 Current Status:${NC}"
-if systemctl is-active --quiet "$SERVICE_NAME"; then
-    echo -e "${GREEN}✅ Service: RUNNING${NC}"
-    # Give the daemon a moment to initialize
-    sleep 2
-    if [[ -f "/tmp/claude-monitor-status.json" ]]; then
-        echo -e "${GREEN}✅ Status file: CREATED${NC}"
-        # Try to show current status
-        if "$INSTALL_DIR/claude-monitor" status > /dev/null 2>&1; then
-            echo -e "${GREEN}✅ Monitoring: ACTIVE${NC}"
-            echo ""
-            echo -e "${YELLOW}Current system status:${NC}"
-            "$INSTALL_DIR/claude-monitor" status 2>/dev/null || echo "Status will be available once Claude processes are detected"
-        fi
-    else
-        echo -e "${YELLOW}⚠️  Status file: Will be created on first activity${NC}"
+# Configure Claude Code
+configure_claude_code() {
+    if [[ "$CONFIGURE_CLAUDE" != "true" ]]; then
+        return
     fi
-else
-    echo -e "${YELLOW}⚠️  Service: Not running (may need manual start)${NC}"
-    echo "   Try: sudo systemctl start claude-monitor"
-fi
-echo ""
-echo -e "${BLUE}🚀 Installation completed successfully!${NC}"
-echo -e "${BLUE}Start using Claude CLI to begin automatic time tracking.${NC}"
+
+    print_step "Configuring Claude Code integration..."
+
+    # Try to find Claude Code config
+    CLAUDE_CONFIG_PATHS=(
+        "$HOME/.claude/settings.json"
+        "$HOME/.config/claude/settings.json"
+        "$HOME/Library/Application Support/Claude/settings.json"
+    )
+
+    CLAUDE_CONFIG=""
+    for path in "${CLAUDE_CONFIG_PATHS[@]}"; do
+        if [[ -f "$path" ]]; then
+            CLAUDE_CONFIG="$path"
+            break
+        fi
+    done
+
+    if [[ -n "$CLAUDE_CONFIG" ]]; then
+        # Backup existing config
+        cp "$CLAUDE_CONFIG" "$CLAUDE_CONFIG.backup"
+        
+        # Add hook configuration (simplified approach)
+        print_info "Claude Code config found: $CLAUDE_CONFIG"
+        print_info "Please manually add the following to your Claude Code settings:"
+        echo
+        echo '{'
+        echo '  "hooks": {'
+        echo "    \"pre_action\": \"$INSTALL_DIR/claude-monitor\""
+        echo '  }'
+        echo '}'
+        echo
+    else
+        print_warning "Claude Code configuration not found"
+        print_info "Please configure Claude Code hooks manually:"
+        print_info "Add this to your Claude Code settings:"
+        echo
+        echo '{'
+        echo '  "hooks": {'
+        echo "    \"pre_action\": \"$INSTALL_DIR/claude-monitor\""
+        echo '  }'
+        echo '}'
+        echo
+    fi
+}
+
+# Start services
+start_services() {
+    if [[ "$START_DAEMON" != "true" ]]; then
+        return
+    fi
+
+    print_step "Starting Claude Monitor daemon..."
+
+    case $PLATFORM in
+        linux|wsl)
+            if [[ "$INSTALL_SERVICE" == "true" ]]; then
+                sudo systemctl start claude-monitor
+                print_success "Daemon started via systemd"
+            else
+                nohup "$INSTALL_DIR/claude-daemon" -config "$CONFIG_DIR/config.json" > "$CONFIG_DIR/daemon.log" 2>&1 &
+                print_success "Daemon started in background"
+            fi
+            ;;
+            
+        macos)
+            if [[ "$INSTALL_SERVICE" == "true" ]]; then
+                # Already started by launchctl load
+                print_success "Daemon started via LaunchAgent"
+            else
+                nohup "$INSTALL_DIR/claude-daemon" -config "$CONFIG_DIR/config.json" > "$CONFIG_DIR/daemon.log" 2>&1 &
+                print_success "Daemon started in background"
+            fi
+            ;;
+            
+        *)
+            "$INSTALL_DIR/claude-daemon" -config "$CONFIG_DIR/config.json" &
+            print_success "Daemon started"
+            ;;
+    esac
+
+    # Wait a moment and test
+    sleep 2
+    if curl -s http://localhost:8080/health > /dev/null; then
+        print_success "Daemon is running and healthy"
+    else
+        print_warning "Daemon may not be running properly"
+        print_info "Check logs: $CONFIG_DIR/daemon.log"
+    fi
+}
+
+# Verification
+verify_installation() {
+    print_step "Verifying installation..."
+
+    # Check binaries
+    if [[ "$INSTALL_DAEMON" == "true" ]]; then
+        if [[ -x "$INSTALL_DIR/claude-daemon" ]]; then
+            VERSION_OUTPUT=$($INSTALL_DIR/claude-daemon -version 2>/dev/null | head -n1 || echo "unknown")
+            print_success "Daemon: $VERSION_OUTPUT"
+        else
+            print_error "Daemon not found or not executable: $INSTALL_DIR/claude-daemon"
+        fi
+    fi
+
+    if [[ "$INSTALL_HOOK" == "true" ]]; then
+        if [[ -x "$INSTALL_DIR/claude-monitor" ]]; then
+            VERSION_OUTPUT=$($INSTALL_DIR/claude-monitor -version 2>/dev/null | head -n1 || echo "unknown")
+            print_success "Hook: $VERSION_OUTPUT"
+        else
+            print_error "Hook not found or not executable: $INSTALL_DIR/claude-monitor"
+        fi
+    fi
+
+    # Check configuration
+    if [[ -f "$CONFIG_DIR/config.json" ]]; then
+        print_success "Configuration: $CONFIG_DIR/config.json"
+    fi
+
+    # Test hook execution
+    if [[ "$INSTALL_HOOK" == "true" && -x "$INSTALL_DIR/claude-monitor" ]]; then
+        if timeout 1s "$INSTALL_DIR/claude-monitor" -debug > /dev/null 2>&1; then
+            print_success "Hook execution test passed"
+        else
+            print_warning "Hook execution test failed (may be normal if daemon not running)"
+        fi
+    fi
+}
+
+print_completion() {
+    echo
+    print_success "Claude Monitor installation completed!"
+    echo
+    
+    echo -e "${BLUE}Next Steps:${NC}"
+    echo
+    
+    if [[ "$INSTALL_DAEMON" == "true" && "$START_DAEMON" != "true" ]]; then
+        echo "1. Start the daemon:"
+        if [[ "$INSTALL_SERVICE" == "true" ]]; then
+            case $PLATFORM in
+                linux|wsl) echo "   sudo systemctl start claude-monitor" ;;
+                macos) echo "   launchctl load ~/Library/LaunchAgents/com.claude-monitor.daemon.plist" ;;
+            esac
+        else
+            echo "   $INSTALL_DIR/claude-daemon"
+        fi
+        echo
+    fi
+    
+    if [[ "$INSTALL_HOOK" == "true" && "$CONFIGURE_CLAUDE" != "true" ]]; then
+        echo "2. Configure Claude Code hooks:"
+        echo '   Add to Claude Code settings: {"hooks": {"pre_action": "'$INSTALL_DIR'/claude-monitor"}}'
+        echo
+    fi
+    
+    echo "3. Test the integration:"
+    echo "   # Check daemon health"
+    echo "   curl http://localhost:8080/health"
+    echo
+    echo "   # Test hook execution"
+    echo "   $INSTALL_DIR/claude-monitor -debug"
+    echo
+    echo "4. View your work tracking:"
+    echo "   # Check current status"
+    echo "   curl \"http://localhost:8080/status?user_id=\$(whoami)\""
+    echo
+    
+    echo -e "${BLUE}Configuration:${NC}"
+    echo "  Config file: $CONFIG_DIR/config.json"
+    echo "  Data directory: $CONFIG_DIR/data"
+    echo "  Logs: $CONFIG_DIR/"
+    echo
+    
+    echo -e "${BLUE}Troubleshooting:${NC}"
+    echo "  Documentation: cmd/claude-monitor/README.md"
+    echo "  Debug hook: $INSTALL_DIR/claude-monitor -debug"
+    echo "  View logs: tail -f $CONFIG_DIR/daemon.log"
+    echo
+    
+    echo -e "${GREEN}Happy tracking! 🎯${NC}"
+}
+
+# Main installation flow
+main() {
+    print_header
+    parse_args "$@"
+    detect_system
+    check_prerequisites
+    build_binaries
+    install_binaries
+    setup_configuration
+    install_service
+    configure_claude_code
+    start_services
+    verify_installation
+    print_completion
+}
+
+# Run main function
+main "$@"

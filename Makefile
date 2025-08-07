@@ -1,146 +1,205 @@
-# Claude Monitor Build System
-# Build system for Claude Monitor with proper Go build configuration
+# Claude Monitor - Single Self-Installing Binary
+# Zero-dependency build system for work hour tracking
 
-.PHONY: all build clean test daemon cli install deps lint generate-ebpf
+.PHONY: build clean install test help daemon monitor status config
 
 # Build variables
-BINARY_DIR=bin
-DAEMON_BINARY=$(BINARY_DIR)/claude-daemon
-CLI_BINARY=$(BINARY_DIR)/claude-monitor
-GO_VERSION=1.21
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "1.0.0")
+BUILD_TIME := $(shell date -u '+%Y-%m-%d_%H:%M:%S')
+GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+LDFLAGS := -ldflags "-X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_TIME) -X main.GitCommit=$(GIT_COMMIT)"
 
-# Build flags (CGO enabled for SQLite)
-BUILD_FLAGS=-ldflags="-s -w"
-CGO_ENABLED=1
+# Default target - build single binary
+build:
+	@echo "🚀 Building Claude Monitor v$(VERSION)..."
+	@echo "   Build Time: $(BUILD_TIME)"
+	@echo "   Git Commit: $(GIT_COMMIT)"
+	cd cmd/claude-monitor && go build $(LDFLAGS) -o ../../claude-monitor .
+	@echo "✅ Single binary built: ./claude-monitor"
+	@echo "📏 Binary size: $(shell du -h claude-monitor 2>/dev/null | cut -f1 || echo 'Unknown')"
 
-all: build
+# Cross-compilation for release
+build-all: build-linux build-darwin build-windows
+	@echo "🎯 All platform binaries built:"
+	@ls -la claude-monitor-* 2>/dev/null || echo "No binaries found"
 
-# Create binary directory
-$(BINARY_DIR):
-	mkdir -p $(BINARY_DIR)
+build-linux:
+	@echo "🐧 Building for Linux amd64..."
+	cd cmd/claude-monitor && GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o ../../claude-monitor-linux-amd64 .
 
-# Build daemon
-daemon: $(BINARY_DIR)
-	CGO_ENABLED=$(CGO_ENABLED) go build $(BUILD_FLAGS) -o $(DAEMON_BINARY) ./cmd/claude-daemon
+build-darwin:
+	@echo "🍎 Building for macOS..."
+	cd cmd/claude-monitor && GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o ../../claude-monitor-darwin-amd64 .
+	cd cmd/claude-monitor && GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o ../../claude-monitor-darwin-arm64 .
 
-# Build simple daemon for testing
-daemon-simple: $(BINARY_DIR)
-	CGO_ENABLED=$(CGO_ENABLED) go build $(BUILD_FLAGS) -o $(BINARY_DIR)/claude-daemon-simple ./cmd/claude-daemon-simple
+build-windows:
+	@echo "🪟 Building for Windows amd64..."
+	cd cmd/claude-monitor && GOOS=windows GOARCH=amd64 go build $(LDFLAGS) -o ../../claude-monitor-windows-amd64.exe .
 
-# Build enhanced daemon with activity monitoring
-daemon-enhanced: $(BINARY_DIR)
-	CGO_ENABLED=$(CGO_ENABLED) go build $(BUILD_FLAGS) -o $(BINARY_DIR)/claude-daemon-enhanced ./cmd/claude-daemon-enhanced
+# Installation and setup
+install: build
+	@echo "📦 Self-installing Claude Monitor..."
+	./claude-monitor install
+	@echo "✅ Installation complete! Next steps:"
+	@echo "   1. Start daemon: ./claude-monitor daemon &"
+	@echo "   2. Configure Claude Code: ./claude-monitor config"
+	@echo "   3. Check status: ./claude-monitor status"
 
-# Build CLI
-cli: $(BINARY_DIR) 
-	CGO_ENABLED=$(CGO_ENABLED) go build $(BUILD_FLAGS) -o $(CLI_BINARY) ./cmd/claude-monitor
+# Development and testing targets
+daemon: build
+	@echo "🔄 Starting Claude Monitor daemon..."
+	./claude-monitor daemon
 
-# Build daemon with eBPF support
-daemon-ebpf: $(BINARY_DIR)
-	CGO_ENABLED=$(CGO_ENABLED) go build -tags ebpf $(BUILD_FLAGS) -o $(DAEMON_BINARY) ./cmd/claude-daemon
+status: build
+	@echo "🔍 Checking Claude Monitor status..."
+	./claude-monitor status
 
-# Build CLI with eBPF support
-cli-ebpf: $(BINARY_DIR)
-	CGO_ENABLED=$(CGO_ENABLED) go build -tags ebpf $(BUILD_FLAGS) -o $(CLI_BINARY) ./cmd/claude-monitor
+config: build
+	@echo "🔧 Showing Claude Code configuration..."
+	./claude-monitor config
 
-# Generate eBPF code
-generate-ebpf:
-	@echo "Generating eBPF code with bpf2go..."
-	cd internal/ebpf && go generate
-	@echo "eBPF code generation complete"
+today: build
+	@echo "📊 Today's work summary..."
+	./claude-monitor today
 
-# Build both binaries (without eBPF by default)
-build: daemon cli
-
-# Build with eBPF support (requires clang and kernel headers)
-build-ebpf: generate-ebpf daemon-ebpf cli-ebpf
-
-# Install dependencies
-deps:
-	go mod download
+# Complete development workflow
+dev-setup:
+	@echo "🛠️ Setting up development environment..."
 	go mod tidy
+	go mod download
+	@echo "✅ Development environment ready"
 
-# Run tests
+# Testing
 test:
+	@echo "🧪 Running tests..."
 	go test -v ./...
 
-# Run tests with coverage
 test-coverage:
-	go test -v -coverprofile=coverage.out ./...
-	go tool cover -html=coverage.out -o coverage.html
+	@echo "📊 Running tests with coverage..."
+	go test -v -cover ./...
 
-# Lint code
+test-integration: build
+	@echo "🔗 Running integration tests..."
+	@if [ -f ./tests/integration-test.sh ]; then ./tests/integration-test.sh; else echo "No integration tests found"; fi
+
+# Code quality
 lint:
-	golangci-lint run ./...
+	@echo "🔍 Running linter..."
+	@if command -v golangci-lint >/dev/null 2>&1; then golangci-lint run ./...; else echo "⚠️ golangci-lint not available, skipping..."; fi
 
-# Format code
 fmt:
+	@echo "✨ Formatting code..."
 	go fmt ./...
 
-# Check Go version
-check-go-version:
-	@go version | grep -q "go$(GO_VERSION)" || (echo "Go $(GO_VERSION) is required" && exit 1)
+vet:
+	@echo "🔎 Running go vet..."
+	go vet ./...
 
-# Install binaries to system
-install: build
-	sudo cp $(DAEMON_BINARY) /usr/local/bin/
-	sudo cp $(CLI_BINARY) /usr/local/bin/
-	sudo chmod +x /usr/local/bin/claude-daemon
-	sudo chmod +x /usr/local/bin/claude-monitor
-
-# Clean build artifacts
+# Cleanup
 clean:
-	rm -rf $(BINARY_DIR)
-	rm -f coverage.out coverage.html
-	rm -f internal/ebpf/claudemonitor_bpfeb.go internal/ebpf/claudemonitor_bpfel.go internal/ebpf/claudemonitor_bpfeb.o internal/ebpf/claudemonitor_bpfel.o
+	@echo "🧹 Cleaning build artifacts..."
+	rm -f claude-monitor
+	rm -f claude-monitor-*
+	go clean ./...
+	@echo "✅ Clean complete"
 
-# Development helpers
-dev-daemon: daemon
-	sudo ./$(DAEMON_BINARY)
+# Release workflow
+release-prep: clean fmt vet test build-all
+	@echo "🎉 Release preparation complete!"
+	@echo "📦 Available binaries:"
+	@ls -la claude-monitor-* 2>/dev/null | awk '{print "   " $$9 " (" $$5 " bytes)"}' || echo "No binaries found"
 
-dev-status: cli
-	./$(CLI_BINARY) status
+# Quick development iteration
+quick: clean build daemon
 
-# Create systemd service file
-systemd-service:
-	@echo "[Unit]" > claude-monitor.service
-	@echo "Description=Claude Monitor Daemon" >> claude-monitor.service
-	@echo "After=network.target" >> claude-monitor.service
-	@echo "" >> claude-monitor.service
-	@echo "[Service]" >> claude-monitor.service
-	@echo "Type=forking" >> claude-monitor.service
-	@echo "ExecStart=/usr/local/bin/claude-daemon" >> claude-monitor.service
-	@echo "PIDFile=/var/run/claude-monitor.pid" >> claude-monitor.service
-	@echo "User=root" >> claude-monitor.service
-	@echo "Group=root" >> claude-monitor.service
-	@echo "" >> claude-monitor.service
-	@echo "[Install]" >> claude-monitor.service
-	@echo "WantedBy=multi-user.target" >> claude-monitor.service
-	@echo "Systemd service file created: claude-monitor.service"
+# Demo workflow
+demo: build install
+	@echo "🎬 Starting demo workflow..."
+	@echo "1. Installing system..."
+	@sleep 2
+	@./claude-monitor daemon > /dev/null 2>&1 &
+	@echo "2. Daemon started in background"
+	@sleep 2
+	@echo "3. System status:"
+	@./claude-monitor status || echo "Status check failed (daemon may still be starting)"
+	@echo "4. Configuration guide:"
+	@./claude-monitor config | head -20
+	@echo ""
+	@echo "✅ Demo complete! Claude Monitor is ready to use."
 
-# Show help
+# Help system
 help:
-	@echo "Claude Monitor Build System"
-	@echo "=========================="
+	@echo "🎯 Claude Monitor - Single Binary Build System"
 	@echo ""
-	@echo "Available targets:"
-	@echo "  build         - Build both daemon and CLI binaries (without eBPF)"
-	@echo "  build-ebpf    - Build with eBPF support (requires clang)"
-	@echo "  daemon        - Build daemon binary only"
-	@echo "  cli           - Build CLI binary only"
-	@echo "  daemon-ebpf   - Build daemon with eBPF support"
-	@echo "  cli-ebpf      - Build CLI with eBPF support"
-	@echo "  generate-ebpf - Generate eBPF Go code from C programs"
-	@echo "  deps          - Install Go dependencies"
-	@echo "  test          - Run tests"
-	@echo "  test-coverage - Run tests with coverage report"
-	@echo "  lint          - Run linter"
-	@echo "  fmt           - Format code"
-	@echo "  install       - Install binaries to system"
-	@echo "  clean         - Clean build artifacts"
-	@echo "  systemd-service - Create systemd service file"
-	@echo "  help          - Show this help"
+	@echo "🚀 Quick Start:"
+	@echo "  make install              # Build and self-install"
+	@echo "  make daemon               # Start background service"  
+	@echo "  make today                # Show today's work report"
 	@echo ""
-	@echo "Development targets:"
-	@echo "  dev-daemon    - Build and run daemon (requires sudo)"
-	@echo "  dev-status    - Build CLI and show status"
+	@echo "🛠️ Build Targets:"
+	@echo "  build                     # Build single binary for current platform"
+	@echo "  build-all                 # Cross-compile for all platforms"  
+	@echo "  clean                     # Remove build artifacts"
+	@echo ""
+	@echo "📊 Operations:"
+	@echo "  status                    # Check system health"
+	@echo "  config                    # Show Claude Code setup guide"
+	@echo "  today                     # Display today's work summary"
+	@echo ""
+	@echo "🧪 Development:"
+	@echo "  dev-setup                 # Initialize development environment"
+	@echo "  test                      # Run unit tests"
+	@echo "  test-coverage             # Run tests with coverage"
+	@echo "  fmt                       # Format all source code"
+	@echo "  lint                      # Run code linter"
+	@echo ""
+	@echo "🎁 Release:"
+	@echo "  release-prep              # Prepare multi-platform release"
+	@echo "  demo                      # Full demo installation"
+	@echo ""
+	@echo "💡 Example Workflow:"
+	@echo "  make build                # Build the binary"
+	@echo "  ./claude-monitor install  # Self-install to system"
+	@echo "  ./claude-monitor daemon & # Start background daemon"
+	@echo "  ./claude-monitor config   # Get Claude Code setup instructions"
+	@echo "  ./claude-monitor today    # Check today's work activity"
+	@echo ""
+	@echo "📋 Binary Features:"
+	@echo "  • Zero external dependencies"
+	@echo "  • Self-installing with embedded assets"
+	@echo "  • Cross-platform support (Linux, macOS, Windows)"
+	@echo "  • Sub-10ms hook execution"
+	@echo "  • Beautiful CLI with colors and tables"
+	@echo "  • AI-optimized Claude Code integration"
+
+# Advanced targets
+check-deps:
+	@echo "🔍 Checking dependencies..."
+	go list -m all
+	@echo ""
+	@echo "Direct dependencies:"
+	@go list -m all | grep -v "indirect" | head -10
+
+size-analysis: build
+	@echo "📏 Binary size analysis..."
+	@echo "Total binary size: $(shell du -h claude-monitor 2>/dev/null | cut -f1 || echo 'Unknown')"
+	@echo "Embedded assets:"
+	@find cmd/claude-monitor/assets -type f -exec du -h {} \; 2>/dev/null | sort || echo "No assets found"
+
+benchmark: build
+	@echo "⚡ Performance benchmarks..."
+	@echo "Hook execution time test:"
+	@time ./claude-monitor hook --debug 2>/dev/null || echo "Hook test complete"
+
+# Legacy compatibility (maintain old build system interface)
+all: build
+build-daemon: build
+build-hook: build
+run-daemon: daemon
+run-hook: 
+	@echo "Testing hook..."
+	./claude-monitor hook --debug
+
+# Version information
+version: build
+	./claude-monitor version

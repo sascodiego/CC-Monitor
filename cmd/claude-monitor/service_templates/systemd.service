@@ -1,0 +1,51 @@
+# Claude Monitor systemd service template
+# This template is embedded in the binary and customized during installation
+
+[Unit]
+Description={{.Description}}
+Documentation=https://github.com/claude-monitor/system
+After={{.After}}
+{{if .RequiredBy}}RequiredBy={{.RequiredBy}}{{else}}Wants=network.target{{end}}
+
+[Service]
+Type=simple
+{{if and .User (not .IsUserService)}}User={{.User}}{{end}}
+{{if and .Group (not .IsUserService)}}Group={{.Group}}{{end}}
+ExecStart={{.ExecutablePath}}{{range .Arguments}} {{.}}{{end}}
+{{if .WorkingDir}}WorkingDirectory={{.WorkingDir}}{{end}}
+
+# Restart configuration
+{{if .RestartOnFailure}}Restart=on-failure
+RestartSec={{.RestartDelay}}{{else}}Restart=no{{end}}
+
+# Environment variables
+{{range $key, $value := .Environment}}Environment="{{$key}}={{$value}}"
+{{end}}
+
+# Process management
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=mixed
+TimeoutStopSec=30
+
+{{if not .IsUserService}}
+# Security settings for system services
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+{{if .WorkingDir}}ReadWritePaths={{.WorkingDir}}
+ReadWritePaths={{.WorkingDir}}/data{{end}}
+
+# Additional hardening
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+
+{{if .Capabilities}}CapabilityBoundingSet={{range .Capabilities}}{{.}} {{end}}
+AmbientCapabilities={{range .Capabilities}}{{.}} {{end}}{{end}}
+{{end}}
+
+[Install]
+{{if .WantedBy}}WantedBy={{.WantedBy}}{{else}}{{if .IsUserService}}WantedBy=default.target{{else}}WantedBy=multi-user.target{{end}}{{end}}

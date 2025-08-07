@@ -1,0 +1,36 @@
+{
+  "daemon": {
+    "listen_addr": "localhost:9193",
+    "database_path": "~/.claude/monitor/monitor.db",
+    "log_level": "info",
+    "enable_cors": true,
+    "max_concurrent_requests": 100
+  },
+  "session": {
+    "duration_hours": 5,
+    "max_idle_minutes": 5
+  },
+  "hook": {
+    "enabled": true,
+    "timeout_ms": 50,
+    "fallback_log": true,
+    "ignore_patterns": [
+      "*/node_modules/*",
+      "*/target/*",
+      "*/.git/*",
+      "*/tmp/*",
+      "*/.claude-monitor/*"
+    ]
+  },
+  "reporting": {
+    "default_output_format": "table",
+    "enable_colors": true,
+    "max_projects_display": 10,
+    "time_format": "15:04"
+  },
+  "projects": {
+    "auto_detect": true,
+    "custom_names": {},
+    "track_git_branches": true
+  }
+}

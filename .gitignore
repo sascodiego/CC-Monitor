@@ -1,45 +1,45 @@
-# Binaries
-bin/
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
+# Legacy Go code (moved to rust implementation)
+legacy-go/
 
-# Test binary, built with `go test -c`
-*.test
+# Rust build artifacts
+target/
+Cargo.lock
 
-# Output of the go coverage tool
-*.out
-coverage.html
+# eBPF build artifacts
+*.o
+*.ll
+*.bc
 
-# Dependency directories
-vendor/
+# Debug symbols
+*.dSYM/
+*.dwarf
 
-# Go workspace file
-go.work
-
-# eBPF generated files
-internal/ebpf/claudemonitor_bpfeb.go
-internal/ebpf/claudemonitor_bpfel.go
-internal/ebpf/claudemonitor_bpfeb.o
-internal/ebpf/claudemonitor_bpfel.o
+# Binary releases
+/release/
+/dist/
 
 # Database files
 *.db
 *.sqlite
+*.kuzu
 
 # Log files
 *.log
+logs/
 
 # PID files
 *.pid
+
+# Temporary files
+/tmp/
+.tmp/
 
 # IDE files
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
 
 # OS generated files
 .DS_Store
@@ -49,3 +49,18 @@ internal/ebpf/claudemonitor_bpfel.o
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Rust-analyzer
+.rust-analyzer/
+
+# Flamegraph profiling
+flamegraph.svg
+perf.data*
+
+# Coverage reports
+tarpaulin-report.html
+lcov.info
+
+# Benchmarking
+criterion/
+target/criterion/
