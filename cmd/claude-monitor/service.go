@@ -21,16 +21,19 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
+	"github.com/claude-monitor/system/internal/service"
+	"github.com/claude-monitor/system/internal/service/interfaces"
 )
 
 /**
- * CONTEXT:   Cross-platform service manager interface
+ * CONTEXT:   Legacy ServiceManager interface - DEPRECATED in favor of segregated interfaces
  * INPUT:     Service configuration and platform-specific parameters
  * OUTPUT:    Service management operations (install, start, stop, status)
- * BUSINESS:  Abstract interface enabling Windows and Linux service support
- * CHANGE:    Initial interface design with comprehensive service operations
- * RISK:      Medium - Interface design affects all service implementations
+ * BUSINESS:  Fat interface violating Interface Segregation Principle - being replaced
+ * CHANGE:    DEPRECATED - Use interfaces.ServiceInstaller, ServiceController, ServiceMonitor instead
+ * RISK:      Medium - Fat interface coupling - will be removed after migration
  */
+// DEPRECATED: Use segregated interfaces instead
 type ServiceManager interface {
 	Install(config ServiceConfig) error
 	Uninstall() error
@@ -260,6 +263,19 @@ This will:
  * CHANGE:    Initial factory implementation with Windows and Linux support
  * RISK:      Medium - Platform detection affects service functionality
  */
+/**
+ * CONTEXT:   Create composite service manager implementing all segregated interfaces
+ * INPUT:     Platform detection and service configuration requirements
+ * OUTPUT:    Composite service manager with all interface implementations
+ * BUSINESS:  Factory provides access to segregated interfaces while maintaining compatibility
+ * CHANGE:    Updated to use Interface Segregation Principle with composite pattern
+ * RISK:      Medium - Service manager creation affecting all service functionality
+ */
+func NewCompositeServiceManager() (*service.CompositeServiceManager, error) {
+	return service.NewCompositeServiceManager()
+}
+
+// DEPRECATED: Use NewCompositeServiceManager instead
 func NewServiceManager() (ServiceManager, error) {
 	switch runtime.GOOS {
 	case "windows":
@@ -353,25 +369,29 @@ func runServiceInstall(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("insufficient permissions: %w", err)
 	}
 	
-	// Create service manager
-	manager, err := NewServiceManager()
+	// Create composite service manager (implementing all segregated interfaces)
+	compositeManager, err := NewCompositeServiceManager()
 	if err != nil {
 		return fmt.Errorf("failed to create service manager: %w", err)
 	}
 	
+	// Use ServiceInstaller interface for installation operations
+	var installer interfaces.ServiceInstaller = compositeManager
+	
 	// Check if already installed
-	if manager.IsInstalled() {
+	if installer.IsInstalled() {
 		warningColor.Println("⚠️  Service is already installed")
 		
-		// Check if running
-		if manager.IsRunning() {
+		// Check if running (use ServiceController interface for runtime operations)
+		var controller interfaces.ServiceController = compositeManager
+		if controller.IsRunning() {
 			infoColor.Println("✅ Service is currently running")
 		} else {
 			infoColor.Println("🔄 Service is installed but not running")
 			
 			if serviceAutoStart {
 				infoColor.Println("⏳ Starting existing service...")
-				if err := manager.Start(); err != nil {
+				if err := controller.Start(); err != nil {
 					return fmt.Errorf("failed to start existing service: %w", err)
 				}
 				successColor.Println("✅ Service started successfully")
@@ -385,6 +405,9 @@ func runServiceInstall(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to generate service configuration: %w", err)
 	}
+	
+	// Convert to interfaces config
+	interfacesConfig := convertToInterfacesConfig(config)
 	
 	infoColor.Printf("📍 Service Name: %s\n", config.Name)
 	infoColor.Printf("📂 Executable: %s\n", config.ExecutablePath)
@@ -404,7 +427,7 @@ func runServiceInstall(cmd *cobra.Command, args []string) error {
 	
 	// Install the service
 	infoColor.Println("⏳ Installing service...")
-	if err := manager.Install(config); err != nil {
+	if err := installer.Install(interfacesConfig); err != nil {
 		return fmt.Errorf("service installation failed: %w", err)
 	}
 	successColor.Println("✅ Service installed successfully")
@@ -412,7 +435,8 @@ func runServiceInstall(cmd *cobra.Command, args []string) error {
 	// Start service if requested
 	if serviceAutoStart {
 		infoColor.Println("⏳ Starting service...")
-		if err := manager.Start(); err != nil {
+		var controller interfaces.ServiceController = compositeManager
+		if err := controller.Start(); err != nil {
 			warningColor.Printf("⚠️  Service installed but failed to start: %v\n", err)
 			fmt.Println()
 			infoColor.Println("💡 You can start the service manually with:")
@@ -422,7 +446,7 @@ func runServiceInstall(cmd *cobra.Command, args []string) error {
 			
 			// Wait a moment and verify
 			time.Sleep(2 * time.Second)
-			if manager.IsRunning() {
+			if controller.IsRunning() {
 				successColor.Println("✅ Service is running and healthy")
 			}
 		}
@@ -445,21 +469,45 @@ func runServiceInstall(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+/**
+ * CONTEXT:   Service start command using ServiceController interface
+ * INPUT:     Start command parameters
+ * OUTPUT:    Started service using focused interface
+ * BUSINESS:  Start command uses only controller interface (Interface Segregation Principle)
+ * CHANGE:    Updated to use ServiceController interface instead of fat ServiceManager
+ * RISK:      Medium - Service start operation affecting system behavior
+ */
 func runServiceStart(cmd *cobra.Command, args []string) error {
-	return executeServiceCommand("start", func(manager ServiceManager) error {
-		return manager.Start()
+	return executeServiceControllerCommand("start", func(controller interfaces.ServiceController) error {
+		return controller.Start()
 	})
 }
 
+/**
+ * CONTEXT:   Service stop command using ServiceController interface
+ * INPUT:     Stop command parameters
+ * OUTPUT:    Stopped service using focused interface
+ * BUSINESS:  Stop command uses only controller interface (Interface Segregation Principle)
+ * CHANGE:    Updated to use ServiceController interface instead of fat ServiceManager
+ * RISK:      Medium - Service stop operation affecting system behavior
+ */
 func runServiceStop(cmd *cobra.Command, args []string) error {
-	return executeServiceCommand("stop", func(manager ServiceManager) error {
-		return manager.Stop()
+	return executeServiceControllerCommand("stop", func(controller interfaces.ServiceController) error {
+		return controller.Stop()
 	})
 }
 
+/**
+ * CONTEXT:   Service restart command using ServiceController interface
+ * INPUT:     Restart command parameters
+ * OUTPUT:    Restarted service using focused interface
+ * BUSINESS:  Restart command uses only controller interface (Interface Segregation Principle)
+ * CHANGE:    Updated to use ServiceController interface instead of fat ServiceManager
+ * RISK:      Medium - Service restart operation affecting system behavior
+ */
 func runServiceRestart(cmd *cobra.Command, args []string) error {
-	return executeServiceCommand("restart", func(manager ServiceManager) error {
-		return manager.Restart()
+	return executeServiceControllerCommand("restart", func(controller interfaces.ServiceController) error {
+		return controller.Restart()
 	})
 }
 
@@ -471,17 +519,31 @@ func runServiceRestart(cmd *cobra.Command, args []string) error {
  * CHANGE:    Initial status display with health metrics and guidance
  * RISK:      Low - Read-only status information with helpful guidance
  */
+/**
+ * CONTEXT:   Service status command using ServiceInstaller and ServiceMonitor interfaces
+ * INPUT:     Status command parameters
+ * OUTPUT:    Service status using focused interfaces
+ * BUSINESS:  Status command uses installer and monitor interfaces (Interface Segregation Principle)
+ * CHANGE:    Updated to use segregated interfaces instead of fat ServiceManager
+ * RISK:      Low - Read-only status operations with improved interface segregation
+ */
 func runServiceStatus(cmd *cobra.Command, args []string) error {
 	headerColor.Println("🔍 Claude Monitor Service Status")
 	fmt.Println(strings.Repeat("═", 50))
 	
-	manager, err := NewServiceManager()
+	// Create composite service manager
+	compositeManager, err := NewCompositeServiceManager()
 	if err != nil {
 		return fmt.Errorf("failed to create service manager: %w", err)
 	}
 	
+	// Use ServiceInstaller interface for installation status
+	var installer interfaces.ServiceInstaller = compositeManager
+	// Use ServiceMonitor interface for status information
+	var monitor interfaces.ServiceMonitor = compositeManager
+	
 	// Check installation status
-	if !manager.IsInstalled() {
+	if !installer.IsInstalled() {
 		warningColor.Println("❌ Service is not installed")
 		fmt.Println()
 		infoColor.Println("💡 Install the service with:")
@@ -490,7 +552,7 @@ func runServiceStatus(cmd *cobra.Command, args []string) error {
 	}
 	
 	// Get detailed status
-	status, err := manager.Status()
+	status, err := monitor.Status()
 	if err != nil {
 		errorColor.Printf("❌ Failed to get service status: %v\n", err)
 		return nil
@@ -498,7 +560,7 @@ func runServiceStatus(cmd *cobra.Command, args []string) error {
 	
 	// Display status
 	fmt.Println()
-	displayServiceStatus(status)
+	displayInterfacesServiceStatus(status)
 	
 	// Check daemon connectivity
 	fmt.Println()
@@ -522,17 +584,31 @@ func runServiceStatus(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+/**
+ * CONTEXT:   Service logs command using ServiceInstaller and ServiceMonitor interfaces
+ * INPUT:     Log retrieval parameters and line count
+ * OUTPUT:    Service logs using focused interfaces
+ * BUSINESS:  Logs command uses installer and monitor interfaces (Interface Segregation Principle)
+ * CHANGE:    Updated to use segregated interfaces instead of fat ServiceManager
+ * RISK:      Low - Read-only log retrieval with improved interface segregation
+ */
 func runServiceLogs(cmd *cobra.Command, args []string) error {
-	manager, err := NewServiceManager()
+	// Create composite service manager
+	compositeManager, err := NewCompositeServiceManager()
 	if err != nil {
 		return fmt.Errorf("failed to create service manager: %w", err)
 	}
 	
-	if !manager.IsInstalled() {
+	// Use ServiceInstaller interface for installation check
+	var installer interfaces.ServiceInstaller = compositeManager
+	// Use ServiceMonitor interface for log retrieval
+	var monitor interfaces.ServiceMonitor = compositeManager
+	
+	if !installer.IsInstalled() {
 		return fmt.Errorf("service is not installed")
 	}
 	
-	logs, err := manager.GetLogs(serviceLogLines)
+	logs, err := monitor.GetLogs(serviceLogLines)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve logs: %w", err)
 	}
@@ -563,24 +639,37 @@ func runServiceLogs(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+/**
+ * CONTEXT:   Service uninstall command using ServiceInstaller and ServiceController interfaces
+ * INPUT:     Uninstall command parameters
+ * OUTPUT:    Uninstalled service using focused interfaces
+ * BUSINESS:  Uninstall command uses installer and controller interfaces (Interface Segregation Principle)
+ * CHANGE:    Updated to use segregated interfaces instead of fat ServiceManager
+ * RISK:      High - Service uninstallation affecting system configuration
+ */
 func runServiceUninstall(cmd *cobra.Command, args []string) error {
 	headerColor.Println("🗑️  Claude Monitor Service Uninstallation")
 	fmt.Println(strings.Repeat("═", 60))
 	
-	manager, err := NewServiceManager()
+	// Create composite service manager
+	compositeManager, err := NewCompositeServiceManager()
 	if err != nil {
 		return fmt.Errorf("failed to create service manager: %w", err)
 	}
 	
-	if !manager.IsInstalled() {
+	// Use segregated interfaces
+	var installer interfaces.ServiceInstaller = compositeManager
+	var controller interfaces.ServiceController = compositeManager
+	
+	if !installer.IsInstalled() {
 		warningColor.Println("⚠️  Service is not installed")
 		return nil
 	}
 	
 	// Stop service if running
-	if manager.IsRunning() {
+	if controller.IsRunning() {
 		infoColor.Println("⏳ Stopping service...")
-		if err := manager.Stop(); err != nil {
+		if err := controller.Stop(); err != nil {
 			warningColor.Printf("⚠️  Failed to stop service: %v\n", err)
 		} else {
 			successColor.Println("✅ Service stopped")
@@ -589,7 +678,7 @@ func runServiceUninstall(cmd *cobra.Command, args []string) error {
 	
 	// Uninstall service
 	infoColor.Println("⏳ Uninstalling service...")
-	if err := manager.Uninstall(); err != nil {
+	if err := installer.Uninstall(); err != nil {
 		return fmt.Errorf("failed to uninstall service: %w", err)
 	}
 	
@@ -607,6 +696,15 @@ func runServiceUninstall(cmd *cobra.Command, args []string) error {
  * CHANGE:    Initial helper functions with consistent error handling
  * RISK:      Low - Utility functions with proper error propagation
  */
+/**
+ * CONTEXT:   DEPRECATED service command execution using fat ServiceManager interface
+ * INPUT:     Operation name and service manager action function
+ * OUTPUT:    Service operation result using deprecated interface
+ * BUSINESS:  Legacy service command execution - replaced by segregated interface functions
+ * CHANGE:    DEPRECATED - Use executeServiceControllerCommand instead
+ * RISK:      Medium - Fat interface coupling - will be removed after migration
+ */
+// DEPRECATED: Use executeServiceControllerCommand instead
 func executeServiceCommand(operation string, action func(ServiceManager) error) error {
 	manager, err := NewServiceManager()
 	if err != nil {
@@ -768,3 +866,136 @@ func formatBytes(bytes int64) string {
 
 //go:embed service_templates/*
 var serviceTemplates embed.FS
+
+// =============================================================================
+// Interface Segregation Principle Helper Functions
+// =============================================================================
+
+/**
+ * CONTEXT:   Configuration conversion from legacy ServiceConfig to interfaces.ServiceConfig
+ * INPUT:     Legacy ServiceConfig structure with platform-specific settings
+ * OUTPUT:    interfaces.ServiceConfig structure for segregated interface use
+ * BUSINESS:  Configuration conversion enables Interface Segregation Principle adoption
+ * CHANGE:    Initial configuration conversion supporting interface migration
+ * RISK:      Low - Configuration mapping preserving all settings
+ */
+func convertToInterfacesConfig(config ServiceConfig) interfaces.ServiceConfig {
+	return interfaces.ServiceConfig{
+		Name:             config.Name,
+		DisplayName:      config.DisplayName,
+		Description:      config.Description,
+		ExecutablePath:   config.ExecutablePath,
+		Arguments:        config.Arguments,
+		WorkingDir:       config.WorkingDir,
+		User:             config.User,
+		Group:            config.Group,
+		StartMode:        interfaces.ServiceStartMode(config.StartMode),
+		RestartOnFailure: config.RestartOnFailure,
+		LogLevel:         config.LogLevel,
+		Environment:      config.Environment,
+	}
+}
+
+/**
+ * CONTEXT:   Service controller command execution using ServiceController interface
+ * INPUT:     Operation name and controller action function
+ * OUTPUT:    Service operation result using focused interface
+ * BUSINESS:  Controller commands use only controller interface (Interface Segregation Principle)
+ * CHANGE:    Interface segregation - controller operations only
+ * RISK:      Medium - Service operations affecting system behavior
+ */
+func executeServiceControllerCommand(operation string, action func(interfaces.ServiceController) error) error {
+	// Create composite service manager
+	compositeManager, err := NewCompositeServiceManager()
+	if err != nil {
+		return fmt.Errorf("failed to create service manager: %w", err)
+	}
+	
+	// Use ServiceInstaller interface for installation check
+	var installer interfaces.ServiceInstaller = compositeManager
+	// Use ServiceController interface for runtime operations
+	var controller interfaces.ServiceController = compositeManager
+	
+	if !installer.IsInstalled() {
+		return fmt.Errorf("service is not installed - run 'claude-monitor service install' first")
+	}
+	
+	infoColor.Printf("⏳ %sing service...\n", strings.Title(operation))
+	
+	if err := action(controller); err != nil {
+		return fmt.Errorf("failed to %s service: %w", operation, err)
+	}
+	
+	successColor.Printf("✅ Service %sed successfully\n", operation)
+	
+	// Wait a moment and show status for start/restart
+	if operation == "start" || operation == "restart" {
+		time.Sleep(time.Second)
+		if controller.IsRunning() {
+			successColor.Println("✅ Service is running and healthy")
+		} else {
+			warningColor.Println("⚠️  Service may still be starting...")
+		}
+	}
+	
+	return nil
+}
+
+/**
+ * CONTEXT:   Service status display using interfaces.ServiceStatus structure
+ * INPUT:     interfaces.ServiceStatus with comprehensive status information
+ * OUTPUT:    Formatted status display with color coding and metrics
+ * BUSINESS:  Status display enables monitoring using segregated interface data
+ * CHANGE:    Updated to use interfaces.ServiceStatus instead of legacy ServiceStatus
+ * RISK:      Low - Display function using interface-segregated status information
+ */
+func displayInterfacesServiceStatus(status interfaces.ServiceStatus) {
+	// Service state with color coding
+	var stateColor *color.Color
+	var stateIcon string
+	
+	switch status.State {
+	case interfaces.ServiceStateRunning:
+		stateColor = successColor
+		stateIcon = "✅"
+	case interfaces.ServiceStateStopped:
+		stateColor = warningColor
+		stateIcon = "⏹️"
+	case interfaces.ServiceStateStarting:
+		stateColor = infoColor
+		stateIcon = "⏳"
+	case interfaces.ServiceStateStopping:
+		stateColor = warningColor
+		stateIcon = "⏹️"
+	case interfaces.ServiceStateFailed:
+		stateColor = errorColor
+		stateIcon = "❌"
+	default:
+		stateColor = dimColor
+		stateIcon = "❓"
+	}
+	
+	fmt.Printf("Service: %s\n", status.DisplayName)
+	stateColor.Printf("%s State: %s\n", stateIcon, string(status.State))
+	
+	if status.PID > 0 {
+		infoColor.Printf("🆔 PID: %d\n", status.PID)
+	}
+	
+	if !status.StartTime.IsZero() {
+		infoColor.Printf("⏰ Started: %s\n", status.StartTime.Format("2006-01-02 15:04:05"))
+		infoColor.Printf("⏱️  Uptime: %s\n", status.Uptime.Round(time.Second))
+	}
+	
+	if status.Memory > 0 {
+		infoColor.Printf("💾 Memory: %s\n", formatBytes(status.Memory))
+	}
+	
+	if status.CPU > 0 {
+		infoColor.Printf("🔄 CPU: %.1f%%\n", status.CPU)
+	}
+	
+	if status.LastError != "" {
+		errorColor.Printf("⚠️  Last Error: %s\n", status.LastError)
+	}
+}
