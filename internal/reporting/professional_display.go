@@ -510,3 +510,148 @@ func wrapText(text string, width int) string {
 	
 	return strings.Join(wrapped, "\n")
 }
+
+/**
+ * CONTEXT:   Display comprehensive daily report with professional formatting
+ * INPUT:     Enhanced daily report with work data and time metrics
+ * OUTPUT:    Complete daily report display with all sections
+ * BUSINESS:  Professional daily reports are core user interface
+ * CHANGE:    Main display function integrating all professional components
+ * RISK:      Low - Display coordination with enhanced visual appeal
+ */
+func DisplayProfessionalDailyReport(report *EnhancedDailyReport, activeWork, totalTime time.Duration) error {
+	// Display metrics dashboard
+	DisplayMetricsDashboard(
+		activeWork,
+		totalTime,
+		report.TotalSessions,
+		report.EfficiencyPercent,
+		time.Duration(report.ClaudeProcessingTime*float64(time.Hour)),
+	)
+	
+	// Display project breakdown if available
+	if len(report.ProjectBreakdown) > 0 {
+		projects := make([]ProjectData, len(report.ProjectBreakdown))
+		for i, proj := range report.ProjectBreakdown {
+			projects[i] = ProjectData{
+				Name:     proj.ProjectName,
+				Duration: time.Duration(proj.WorkHours * float64(time.Hour)),
+				Percent:  proj.Percentage,
+				Sessions: proj.Sessions,
+			}
+		}
+		DisplayProfessionalProjectBreakdown(projects)
+	}
+	
+	// Display work timeline if available
+	if len(report.WorkBlocks) > 0 {
+		workBlocks := make([]WorkBlockData, len(report.WorkBlocks))
+		for i, block := range report.WorkBlocks {
+			workBlocks[i] = WorkBlockData{
+				StartTime:     block.StartTime,
+				EndTime:       block.EndTime,
+				Duration:      block.Duration,
+				ProjectName:   block.ProjectName,
+				ActivityCount: 1, // Simplified for display
+			}
+		}
+		DisplayProfessionalWorkTimeline(workBlocks)
+	}
+	
+	// Display insights
+	if len(report.Insights) > 0 {
+		DisplayProfessionalInsights(report.Insights)
+	}
+	
+	// Display footer with next steps
+	DisplayProfessionalFooter()
+	
+	return nil
+}
+
+/**
+ * CONTEXT:   Display comprehensive monthly report with professional formatting
+ * INPUT:     Enhanced monthly report with heatmap and analytics
+ * OUTPUT:    Complete monthly report display with all sections
+ * BUSINESS:  Professional monthly reports provide long-term insights
+ * CHANGE:    Monthly display function for comprehensive analytics
+ * RISK:      Low - Monthly report formatting with visual enhancements
+ */
+func DisplayProfessionalMonthlyReport(report *EnhancedMonthlyReport) error {
+	// Display month header
+	monthName := report.Month.Format("January 2006")
+	DisplayProfessionalHeader("MONTHLY REPORT", monthName)
+	
+	if report.TotalWorkHours == 0 {
+		DisplayProfessionalEmptyState("No work activity recorded for this month.")
+		return nil
+	}
+	
+	// Display monthly metrics
+	sectionWidth := 66
+	
+	// Monthly summary section
+	fmt.Printf("%s%s%s %s MONTHLY SUMMARY %s", 
+		ColorBrightCyan, BoxTopLeft, BoxHorizontal, SymbolSession, strings.Repeat(BoxHorizontal, sectionWidth-21))
+	fmt.Printf("%s%s\n", BoxTopRight, ColorReset)
+	
+	// Total work hours line
+	totalHoursStr := formatDurationPro(time.Duration(report.TotalWorkHours * float64(time.Hour)))
+	line1 := fmt.Sprintf("  %s Total Work: %s%s%s     %s Working Days: %s%d%s", 
+		SymbolWork, ColorBrightGreen, totalHoursStr, ColorReset,
+		SymbolTimeline, ColorBrightCyan, report.WorkingDays, ColorReset)
+	
+	fmt.Printf("%s%s%-*s%s%s\n", 
+		ColorBrightCyan, BoxVertical, sectionWidth, line1, BoxVertical, ColorReset)
+	
+	// Average hours line
+	avgDailyStr := fmt.Sprintf("%.1fh", report.AverageHoursPerDay)
+	avgWorkingStr := fmt.Sprintf("%.1fh", report.AverageHoursPerWorkingDay)
+	line2 := fmt.Sprintf("  %s Daily Avg: %s%s%s        %s Working Avg: %s%s%s", 
+		SymbolEfficiency, ColorBrightYellow, avgDailyStr, ColorReset,
+		SymbolFocus, ColorBrightGreen, avgWorkingStr, ColorReset)
+	
+	fmt.Printf("%s%s%-*s%s%s\n", 
+		ColorBrightCyan, BoxVertical, sectionWidth, line2, BoxVertical, ColorReset)
+	
+	// Best day and streak
+	if !report.BestDay.Date.IsZero() {
+		bestDayStr := report.BestDay.Date.Format("Jan 2")
+		bestHoursStr := fmt.Sprintf("%.1fh", report.BestDay.Hours)
+		line3 := fmt.Sprintf("  %s Best Day: %s%s (%s)%s   %s Longest Streak: %s%d days%s", 
+			SymbolTrend, ColorBrightMagenta, bestDayStr, bestHoursStr, ColorReset,
+			SymbolFocus, ColorBrightGreen, report.LongestWorkStreak, ColorReset)
+		
+		fmt.Printf("%s%s%-*s%s%s\n", 
+			ColorBrightCyan, BoxVertical, sectionWidth, line3, BoxVertical, ColorReset)
+	}
+	
+	// Bottom border
+	fmt.Printf("%s%s", ColorBrightCyan, BoxBottomLeft)
+	fmt.Print(strings.Repeat(BoxHorizontal, sectionWidth))
+	fmt.Printf("%s%s\n\n", BoxBottomRight, ColorReset)
+	
+	// Display project breakdown if available
+	if len(report.ProjectBreakdown) > 0 {
+		projects := make([]ProjectData, len(report.ProjectBreakdown))
+		for i, proj := range report.ProjectBreakdown {
+			projects[i] = ProjectData{
+				Name:     proj.ProjectName,
+				Duration: time.Duration(proj.WorkHours * float64(time.Hour)),
+				Percent:  proj.Percentage,
+				Sessions: proj.Sessions,
+			}
+		}
+		DisplayProfessionalProjectBreakdown(projects)
+	}
+	
+	// Display insights if available
+	if len(report.Insights) > 0 {
+		DisplayProfessionalInsights(report.Insights)
+	}
+	
+	// Display footer
+	DisplayProfessionalFooter()
+	
+	return nil
+}

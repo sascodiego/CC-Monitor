@@ -10,6 +10,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -69,14 +70,23 @@ func initializeReporting(dbPath string) error {
 	
 	// Initialize database connection
 	var err error
-	unifiedDB, err = sqlite.NewSQLiteDB(dbPath)
+	connConfig := &sqlite.ConnectionConfig{
+		DBPath: dbPath,
+	}
+	unifiedDB, err = sqlite.NewSQLiteDB(connConfig)
 	if err != nil {
 		return fmt.Errorf("failed to initialize database: %w", err)
 	}
 	
-	// Initialize reporting services
-	unifiedReportingSvc = reporting.NewSQLiteReportingService(unifiedDB)
-	unifiedAnalytics = reporting.NewWorkAnalyticsEngine(unifiedDB)
+	// Initialize individual repositories
+	sessionRepo := sqlite.NewSessionRepository(unifiedDB)
+	workBlockRepo := sqlite.NewWorkBlockRepository(unifiedDB.DB())
+	activityRepo := sqlite.NewActivityRepository(unifiedDB.DB())
+	projectRepo := sqlite.NewProjectRepository(unifiedDB.DB())
+	
+	// Initialize reporting services with repositories
+	unifiedReportingSvc = reporting.NewSQLiteReportingService(sessionRepo, workBlockRepo, activityRepo, projectRepo)
+	unifiedAnalytics = reporting.NewWorkAnalyticsEngine(workBlockRepo, activityRepo, projectRepo)
 	
 	return nil
 }
@@ -129,7 +139,8 @@ func generateUnifiedDailyReport(userID string, date time.Time) error {
 	}
 	
 	// Generate enhanced daily report
-	report, err := unifiedReportingSvc.GetEnhancedDailyReport(userID, date)
+	ctx := context.Background()
+	report, err := unifiedReportingSvc.GenerateDailyReport(ctx, userID, date)
 	if err != nil {
 		return fmt.Errorf("failed to generate daily report: %w", err)
 	}

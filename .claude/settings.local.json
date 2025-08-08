@@ -58,7 +58,8 @@
       "Bash(GOOS=linux go build -o claude-monitor ./cmd/claude-monitor)",
       "Bash(./claude-daemon --version)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(./test-build:*)"
     ],
     "deny": [],
     "additionalDirectories": [

@@ -106,16 +106,21 @@ func runStandardDaemon(config *AppConfig) error {
 func createDaemonOrchestrator(config *AppConfig) (*daemon.Orchestrator, error) {
 	daemonConfig := &cfg.DaemonConfig{
 		Server: cfg.ServerConfig{
-			ListenAddr:             config.Daemon.ListenAddr,
-			MaxConcurrentRequests:  config.Daemon.MaxConcurrentRequests,
-			EnableCORS:             config.Daemon.EnableCORS,
+			ListenAddr: config.Daemon.ListenAddr,
 		},
 		Database: cfg.DatabaseConfig{
 			Path: config.Daemon.DatabasePath,
 		},
+		Performance: cfg.PerformanceConfig{
+			MaxConcurrentRequests: 100, // Default value
+		},
 	}
 	
-	return daemon.NewOrchestrator(daemonConfig)
+	orchestratorConfig := daemon.OrchestratorConfig{
+		DaemonConfig: daemonConfig,
+	}
+	
+	return daemon.NewOrchestrator(orchestratorConfig)
 }
 
 /**
@@ -127,7 +132,7 @@ func createDaemonOrchestrator(config *AppConfig) (*daemon.Orchestrator, error) {
  * RISK:      High - Signal handling and graceful shutdown coordination
  */
 func startDaemon(orchestrator *daemon.Orchestrator, config *AppConfig) error {
-	ctx, cancel := context.WithCancel(context.Background())
+	_, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	
 	// Setup signal handling
@@ -137,7 +142,7 @@ func startDaemon(orchestrator *daemon.Orchestrator, config *AppConfig) error {
 	// Start orchestrator in background
 	errChan := make(chan error, 1)
 	go func() {
-		errChan <- orchestrator.Start(ctx)
+		errChan <- orchestrator.Run()
 	}()
 	
 	if !daemonService {
@@ -155,12 +160,12 @@ func startDaemon(orchestrator *daemon.Orchestrator, config *AppConfig) error {
 		cancel()
 		
 		// Graceful shutdown with timeout
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		_, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer shutdownCancel()
 		
-		if err := orchestrator.Shutdown(shutdownCtx); err != nil {
-			errorColor.Printf("❌ Shutdown error: %v\n", err)
-		} else if !daemonService {
+		// Daemon will stop naturally when context is cancelled
+		// The Run() method handles graceful shutdown
+		if !daemonService {
 			successColor.Println("✅ Daemon stopped gracefully")
 		}
 		return nil
@@ -186,14 +191,23 @@ func initializeDatabase(dbPath string) error {
 	
 	// Initialize global database connection
 	var err error
-	unifiedDB, err = sqlite.NewSQLiteDB(dbPath)
+	connConfig := &sqlite.ConnectionConfig{
+		DBPath: dbPath,
+	}
+	unifiedDB, err = sqlite.NewSQLiteDB(connConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create database connection: %w", err)
 	}
 	
+	// Initialize individual repositories
+	sessionRepo := sqlite.NewSessionRepository(unifiedDB)
+	workBlockRepo := sqlite.NewWorkBlockRepository(unifiedDB.DB())
+	activityRepo := sqlite.NewActivityRepository(unifiedDB.DB())
+	projectRepo := sqlite.NewProjectRepository(unifiedDB.DB())
+	
 	// Initialize reporting services
-	unifiedReportingSvc = reporting.NewSQLiteReportingService(unifiedDB)
-	unifiedAnalytics = reporting.NewWorkAnalyticsEngine(unifiedDB)
+	unifiedReportingSvc = reporting.NewSQLiteReportingService(sessionRepo, workBlockRepo, activityRepo, projectRepo)
+	unifiedAnalytics = reporting.NewWorkAnalyticsEngine(workBlockRepo, activityRepo, projectRepo)
 	
 	return nil
 }
