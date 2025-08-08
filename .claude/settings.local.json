@@ -59,7 +59,9 @@
       "Bash(./claude-daemon --version)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(./test-build:*)"
+      "Bash(./test-build:*)",
+      "Bash(git fetch:*)",
+      "Bash(git push:*)"
     ],
     "deny": [],
     "additionalDirectories": [
