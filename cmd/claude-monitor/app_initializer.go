@@ -28,6 +28,14 @@ var (
 	unifiedAnalytics    *reporting.WorkAnalyticsEngine
 )
 
+// Global dependency injection containers initialized at startup
+var (
+	// Core dependencies for Dependency Inversion Principle
+	globalFileSystem FileSystemProvider = &DefaultFileSystemProvider{}
+	globalCommandExec CommandExecutor = &DefaultCommandExecutor{}
+	globalDatabase DatabaseProvider // Will be initialized with actual database connection
+)
+
 // Global flags
 var (
 	configFile   string
@@ -54,17 +62,36 @@ var (
 )
 
 /**
- * CONTEXT:   Initialize reporting system for unified CLI access
+ * CONTEXT:   Initialize dependency injection containers for SOLID architecture
+ * INPUT:     System environment and configuration requirements
+ * OUTPUT:    Fully configured dependency containers for application use
+ * BUSINESS:  Dependency injection enables testable and flexible architecture
+ * CHANGE:    Added dependency injection initialization for SOLID principles
+ * RISK:      Low - Dependency container setup with interface abstractions
+ */
+func initializeDependencyInjection() error {
+	// Initialize daemon dependencies container
+	daemonDeps = &DaemonDependencies{
+		FileSystem: globalFileSystem,
+		Database:   globalDatabase, // Will be set after database initialization
+		Executor:   globalCommandExec,
+	}
+	
+	return nil
+}
+
+/**
+ * CONTEXT:   Initialize reporting system for unified CLI access with dependency injection
  * INPUT:     Database path and configuration requirements
  * OUTPUT:    Configured reporting system ready for CLI commands
  * BUSINESS:  Unified reporting enables consistent data access across commands
- * CHANGE:    Extracted reporting initialization for better organization
+ * CHANGE:    Applied dependency injection to reporting initialization
  * RISK:      Medium - Database initialization affecting all reporting features
  */
 func initializeReporting(dbPath string) error {
-	// Ensure database directory exists
+	// Ensure database directory exists using dependency injection
 	dbDir := filepath.Dir(dbPath)
-	if err := os.MkdirAll(dbDir, 0755); err != nil {
+	if err := globalFileSystem.CreateDir(dbDir, 0755); err != nil {
 		return fmt.Errorf("failed to create database directory: %w", err)
 	}
 	
@@ -76,6 +103,14 @@ func initializeReporting(dbPath string) error {
 	unifiedDB, err = sqlite.NewSQLiteDB(connConfig)
 	if err != nil {
 		return fmt.Errorf("failed to initialize database: %w", err)
+	}
+	
+	// Set up database provider for dependency injection
+	globalDatabase = NewSQLiteDatabaseProvider(unifiedDB)
+	
+	// Update daemon dependencies with initialized database
+	if daemonDeps != nil {
+		daemonDeps.Database = globalDatabase
 	}
 	
 	// Initialize individual repositories

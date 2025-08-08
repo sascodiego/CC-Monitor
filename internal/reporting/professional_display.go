@@ -1,92 +1,64 @@
 /**
- * CONTEXT:   Professional CLI display utilities for Claude Monitor reports
- * INPUT:     Report data structures and formatting requirements
- * OUTPUT:    Premium, visually stunning CLI interface matching modern developer tools
- * BUSINESS:  Professional appearance enhances user confidence and adoption
- * CHANGE:    New professional display system for enhanced UX/UI
- * RISK:      Low - Display enhancement with no business logic changes
+ * CONTEXT:   Main display functions for Claude Monitor professional reports
+ * INPUT:     Report data structures requiring comprehensive visual presentation
+ * OUTPUT:    Complete professional CLI interface with coordinated sections
+ * BUSINESS:  Main display orchestration provides cohesive user experience
+ * CHANGE:    Refactored from monolithic file to focus on display coordination
+ * RISK:      Low - Display orchestration with delegated formatting responsibilities
  */
 
 package reporting
 
 import (
 	"fmt"
-	"math"
 	"strings"
 	"time"
 )
 
-// Color constants for professional theming
-const (
-	ColorReset     = "\033[0m"
-	ColorBold      = "\033[1m"
-	ColorDim       = "\033[2m"
-	ColorUnderline = "\033[4m"
+// Data structures for display components
 
-	// Primary colors
-	ColorBlue    = "\033[34m"
-	ColorCyan    = "\033[36m"
-	ColorGreen   = "\033[32m"
-	ColorYellow  = "\033[33m"
-	ColorRed     = "\033[31m"
-	ColorMagenta = "\033[35m"
-	ColorWhite   = "\033[37m"
+/**
+ * CONTEXT:   Project data structure for display formatting
+ * INPUT:     Project information with time allocation and activity metrics
+ * OUTPUT:    Structured data for consistent project display
+ * BUSINESS:  Standardized project data enables consistent reporting
+ * CHANGE:    Kept as part of main display interface
+ * RISK:      Low - Data structure for display coordination
+ */
+type ProjectData struct {
+	Name     string
+	Duration time.Duration
+	Percent  float64
+	Sessions int
+	Color    string
+}
 
-	// Bright colors
-	ColorBrightBlue    = "\033[94m"
-	ColorBrightCyan    = "\033[96m"
-	ColorBrightGreen   = "\033[92m"
-	ColorBrightYellow  = "\033[93m"
-	ColorBrightRed     = "\033[91m"
-	ColorBrightWhite   = "\033[97m"
-	ColorBrightMagenta = "\033[95m"
-
-	// Background colors
-	BgBlue   = "\033[44m"
-	BgGreen  = "\033[42m"
-	BgYellow = "\033[43m"
-	BgRed    = "\033[41m"
-)
-
-// Professional box drawing characters
-const (
-	BoxTopLeft     = "╭"
-	BoxTopRight    = "╮"
-	BoxBottomLeft  = "╰"
-	BoxBottomRight = "╯"
-	BoxHorizontal  = "─"
-	BoxVertical    = "│"
-	BoxCross       = "┼"
-	BoxTeeDown     = "┬"
-	BoxTeeUp       = "┴"
-	BoxTeeRight    = "├"
-	BoxTeeLeft     = "┤"
-)
-
-// Professional symbols
-const (
-	SymbolWork      = "⚡"
-	SymbolTime      = "🕰️"
-	SymbolEfficiency = "🎯"
-	SymbolFocus     = "🧠"
-	SymbolClaude    = "🤖"
-	SymbolProject   = "📁"
-	SymbolSession   = "📊"
-	SymbolTimeline  = "⏱️"
-	SymbolInsight   = "💡"
-	SymbolTrend     = "📈"
-)
+/**
+ * CONTEXT:   Work block data structure for timeline display
+ * INPUT:     Individual work session information with timing and project context
+ * OUTPUT:    Structured data for timeline visualization
+ * BUSINESS:  Detailed work block data enables timeline analysis
+ * CHANGE:    Kept as part of main display interface
+ * RISK:      Low - Data structure for timeline coordination
+ */
+type WorkBlockData struct {
+	StartTime     time.Time
+	EndTime       time.Time
+	Duration      time.Duration
+	ProjectName   string
+	ActivityCount int
+}
 
 /**
  * CONTEXT:   Professional header for Claude Monitor reports
  * INPUT:     Report title and date information
  * OUTPUT:    Elegant bordered header with consistent branding
  * BUSINESS:  Professional appearance builds user confidence
- * CHANGE:    Professional header design with modern aesthetics
+ * CHANGE:    Kept as main display function using extracted constants
  * RISK:      Low - Visual enhancement only
  */
 func DisplayProfessionalHeader(title, date string) {
-	headerWidth := 68
+	headerWidth := DefaultHeaderWidth
 	titleLine := fmt.Sprintf("    %s CLAUDE MONITOR %s %s", SymbolWork, SymbolWork, title)
 	dateLine := fmt.Sprintf("        %s", date)
 	
@@ -119,11 +91,11 @@ func DisplayProfessionalHeader(title, date string) {
  * INPUT:     Daily metrics including work time, efficiency, sessions
  * OUTPUT:    Dashboard-style metrics display with contextual coloring
  * BUSINESS:  Quick visual overview of key productivity metrics
- * CHANGE:    Professional dashboard design with visual hierarchy
+ * CHANGE:    Dashboard design using extracted utility functions
  * RISK:      Low - Metrics display enhancement
  */
 func DisplayMetricsDashboard(activeWork time.Duration, totalTime time.Duration, sessions int, efficiency float64, claudeTime time.Duration) {
-	sectionWidth := 66
+	sectionWidth := DefaultSectionWidth
 	claudePercent := 0.0
 	if activeWork > 0 {
 		claudePercent = float64(claudeTime) / float64(activeWork) * 100
@@ -179,23 +151,15 @@ func DisplayMetricsDashboard(activeWork time.Duration, totalTime time.Duration, 
  * INPUT:     Project data with time allocation and activity counts
  * OUTPUT:    Modern table with visual progress indicators
  * BUSINESS:  Clear project time allocation for productivity analysis
- * CHANGE:    Professional table design with enhanced readability
+ * CHANGE:    Table design using extracted utility functions for formatting
  * RISK:      Low - Project display enhancement
  */
-type ProjectData struct {
-	Name     string
-	Duration time.Duration
-	Percent  float64
-	Sessions int
-	Color    string
-}
-
 func DisplayProfessionalProjectBreakdown(projects []ProjectData) {
 	if len(projects) == 0 {
 		return
 	}
 	
-	sectionWidth := 66
+	sectionWidth := DefaultSectionWidth
 	
 	// Section header
 	fmt.Printf("%s%s%s %s PROJECT BREAKDOWN %s", 
@@ -214,7 +178,7 @@ func DisplayProfessionalProjectBreakdown(projects []ProjectData) {
 	
 	// Project rows
 	for i, project := range projects {
-		projectName := truncateStringPro(project.Name, 25)
+		projectName := truncateStringPro(project.Name, MaxProjectNameLen)
 		timeStr := formatDurationPro(project.Duration)
 		percentStr := fmt.Sprintf("%.1f%%", project.Percent)
 		sessionsStr := fmt.Sprintf("%d", project.Sessions)
@@ -247,23 +211,15 @@ func DisplayProfessionalProjectBreakdown(projects []ProjectData) {
  * INPUT:     Work block data with time ranges and activities
  * OUTPUT:    Timeline visualization with professional styling
  * BUSINESS:  Visual work timeline helps identify productivity patterns
- * CHANGE:    Enhanced timeline with visual connectors and better formatting
+ * CHANGE:    Timeline with extracted utility functions for formatting
  * RISK:      Low - Timeline display enhancement
  */
-type WorkBlockData struct {
-	StartTime     time.Time
-	EndTime       time.Time
-	Duration      time.Duration
-	ProjectName   string
-	ActivityCount int
-}
-
 func DisplayProfessionalWorkTimeline(workBlocks []WorkBlockData) {
 	if len(workBlocks) == 0 {
 		return
 	}
 	
-	sectionWidth := 66
+	sectionWidth := DefaultSectionWidth
 	
 	// Section header
 	fmt.Printf("%s%s%s %s WORK TIMELINE %s", 
@@ -309,7 +265,7 @@ func DisplayProfessionalWorkTimeline(workBlocks []WorkBlockData) {
  * INPUT:     Generated insights and recommendations
  * OUTPUT:    Visually appealing insights with proper formatting
  * BUSINESS:  Professional insights encourage user engagement
- * CHANGE:    Enhanced insight formatting with visual appeal
+ * CHANGE:    Insights formatting using extracted text wrapping utility
  * RISK:      Low - Insights display improvement
  */
 func DisplayProfessionalInsights(insights []string) {
@@ -317,7 +273,7 @@ func DisplayProfessionalInsights(insights []string) {
 		return
 	}
 	
-	sectionWidth := 66
+	sectionWidth := DefaultSectionWidth
 	
 	// Section header
 	fmt.Printf("%s%s%s %s INSIGHTS & RECOMMENDATIONS %s", 
@@ -352,7 +308,7 @@ func DisplayProfessionalInsights(insights []string) {
  * INPUT:     Available commands and next steps
  * OUTPUT:    Actionable footer with command suggestions
  * BUSINESS:  Footer guidance improves user experience and tool adoption
- * CHANGE:    Professional footer with clear next steps
+ * CHANGE:    Footer with extracted constants for consistent formatting
  * RISK:      Low - Footer enhancement
  */
 func DisplayProfessionalFooter() {
@@ -370,11 +326,11 @@ func DisplayProfessionalFooter() {
  * INPUT:     Empty state context and guidance
  * OUTPUT:    Professional empty state with clear next steps
  * BUSINESS:  Professional empty states improve user onboarding
- * CHANGE:    Enhanced empty state with actionable guidance
+ * CHANGE:    Empty state using extracted text wrapping utility
  * RISK:      Low - Empty state improvement
  */
 func DisplayProfessionalEmptyState(message string) {
-	sectionWidth := 66
+	sectionWidth := DefaultSectionWidth
 	
 	// Empty state header
 	fmt.Printf("%s%s%s %s NO DATA FOUND %s", 
@@ -405,118 +361,12 @@ func DisplayProfessionalEmptyState(message string) {
 	fmt.Printf("%s%s\n\n", BoxBottomRight, ColorReset)
 }
 
-// Professional utility functions
-
-func formatDurationPro(d time.Duration) string {
-	if d == 0 {
-		return "0m"
-	}
-	
-	hours := int(d.Hours())
-	minutes := int(d.Minutes()) % 60
-	
-	if hours > 0 {
-		if minutes > 0 {
-			return fmt.Sprintf("%dh %dm", hours, minutes)
-		}
-		return fmt.Sprintf("%dh", hours)
-	}
-	return fmt.Sprintf("%dm", minutes)
-}
-
-func truncateStringPro(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	if maxLen <= 3 {
-		return s[:maxLen]
-	}
-	return s[:maxLen-3] + "…"
-}
-
-func getEfficiencyColor(efficiency float64) string {
-	if efficiency >= 80 {
-		return ColorBrightGreen
-	}
-	if efficiency >= 60 {
-		return ColorBrightYellow
-	}
-	return ColorBrightRed
-}
-
-func getFocusColor(focusScore int) string {
-	if focusScore >= 80 {
-		return ColorBrightGreen
-	}
-	if focusScore >= 60 {
-		return ColorBrightYellow
-	}
-	return ColorBrightRed
-}
-
-func getDurationColor(d time.Duration) string {
-	hours := d.Hours()
-	if hours >= 2 {
-		return ColorBrightGreen
-	}
-	if hours >= 1 {
-		return ColorBrightYellow
-	}
-	return ColorBrightRed
-}
-
-func getProjectColor(percent float64) string {
-	if percent >= 40 {
-		return ColorBrightCyan
-	}
-	if percent >= 20 {
-		return ColorCyan
-	}
-	return ColorDim
-}
-
-func calculateFocusScore(efficiency float64, sessions int) int {
-	// Calculate focus score based on efficiency and session count
-	baseScore := efficiency * 0.7
-	sessionBonus := math.Min(float64(sessions)*10, 30)
-	return int(math.Min(baseScore+sessionBonus, 100))
-}
-
-func wrapText(text string, width int) string {
-	if len(text) <= width {
-		return text
-	}
-	
-	var wrapped []string
-	words := strings.Fields(text)
-	currentLine := ""
-	
-	for _, word := range words {
-		if len(currentLine)+len(word)+1 <= width {
-			if currentLine == "" {
-				currentLine = word
-			} else {
-				currentLine += " " + word
-			}
-		} else {
-			wrapped = append(wrapped, currentLine)
-			currentLine = word
-		}
-	}
-	
-	if currentLine != "" {
-		wrapped = append(wrapped, currentLine)
-	}
-	
-	return strings.Join(wrapped, "\n")
-}
-
 /**
  * CONTEXT:   Display comprehensive daily report with professional formatting
  * INPUT:     Enhanced daily report with work data and time metrics
  * OUTPUT:    Complete daily report display with all sections
  * BUSINESS:  Professional daily reports are core user interface
- * CHANGE:    Main display function integrating all professional components
+ * CHANGE:    Main display orchestration using separated utility functions
  * RISK:      Low - Display coordination with enhanced visual appeal
  */
 func DisplayProfessionalDailyReport(report *EnhancedDailyReport, activeWork, totalTime time.Duration) error {
@@ -574,7 +424,7 @@ func DisplayProfessionalDailyReport(report *EnhancedDailyReport, activeWork, tot
  * INPUT:     Enhanced monthly report with heatmap and analytics
  * OUTPUT:    Complete monthly report display with all sections
  * BUSINESS:  Professional monthly reports provide long-term insights
- * CHANGE:    Monthly display function for comprehensive analytics
+ * CHANGE:    Monthly display using extracted utilities for consistent formatting
  * RISK:      Low - Monthly report formatting with visual enhancements
  */
 func DisplayProfessionalMonthlyReport(report *EnhancedMonthlyReport) error {
@@ -588,7 +438,7 @@ func DisplayProfessionalMonthlyReport(report *EnhancedMonthlyReport) error {
 	}
 	
 	// Display monthly metrics
-	sectionWidth := 66
+	sectionWidth := DefaultSectionWidth
 	
 	// Monthly summary section
 	fmt.Printf("%s%s%s %s MONTHLY SUMMARY %s", 

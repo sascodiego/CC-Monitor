@@ -5,7 +5,7 @@
  * INPUT:     Service configuration, systemctl commands, systemd unit management
  * OUTPUT:    Professional Linux service with systemd integration and journal logging
  * BUSINESS:  Linux service integration enables enterprise deployment on Linux systems
- * CHANGE:    Initial Linux systemd service implementation with user and system support
+ * CHANGE:    Applied Dependency Inversion Principle with injected interfaces
  * RISK:      High - systemd integration requiring proper unit file management
  */
 
@@ -26,20 +26,54 @@ import (
 )
 
 /**
- * CONTEXT:   Linux systemd service manager implementation
+ * CONTEXT:   Linux systemd service manager implementation with dependency injection
  * INPUT:     Service configuration, systemctl operations, unit file management
  * OUTPUT:    Complete Linux service lifecycle management with systemd
  * BUSINESS:  LinuxServiceManager provides professional Linux service integration
- * CHANGE:    Initial Linux service manager with systemd and journal integration
+ * CHANGE:    Applied dependency injection for testability and flexibility
  * RISK:      High - systemd integration requires careful unit file management
  */
 type LinuxServiceManager struct {
 	serviceName   string
 	isUserService bool
 	unitFilePath  string
+	commandExec   CommandExecutor
+	fileSystem    FileSystemProvider
 }
 
+// Constructor with dependency injection
+func NewLinuxServiceManagerWithDeps(cmdExec CommandExecutor, fs FileSystemProvider) (*LinuxServiceManager, error) {
+	serviceName := "claude-monitor"
+	isUserService := serviceUserLevel
+	
+	var unitFilePath string
+	if isUserService {
+		homeDir, err := fs.GetUserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("cannot determine home directory: %w", err)
+		}
+		unitFilePath = filepath.Join(homeDir, ".config/systemd/user", serviceName+".service")
+	} else {
+		unitFilePath = filepath.Join("/etc/systemd/system", serviceName+".service")
+	}
+	
+	return &LinuxServiceManager{
+		serviceName:   serviceName,
+		isUserService: isUserService,
+		unitFilePath:  unitFilePath,
+		commandExec:   cmdExec,
+		fileSystem:    fs,
+	}, nil
+}
+
+// Legacy constructor for backward compatibility
 func NewLinuxServiceManager() (*LinuxServiceManager, error) {
+	// Use default implementations for backward compatibility
+	return NewLinuxServiceManagerWithDeps(&DefaultCommandExecutor{}, &DefaultFileSystemProvider{})
+}
+
+// Original constructor logic preserved for reference
+func newLinuxServiceManagerLegacy() (*LinuxServiceManager, error) {
 	serviceName := "claude-monitor"
 	isUserService := serviceUserLevel
 	
@@ -88,15 +122,15 @@ func (l *LinuxServiceManager) Install(config ServiceConfig) error {
 		return fmt.Errorf("failed to generate systemd unit: %w", err)
 	}
 	
-	// Write unit file
-	if err := os.WriteFile(l.unitFilePath, []byte(unitContent), 0644); err != nil {
+	// Write unit file using injected file system
+	if err := l.fileSystem.WriteFile(l.unitFilePath, []byte(unitContent), 0644); err != nil {
 		return fmt.Errorf("failed to write unit file: %w", err)
 	}
 	
 	// Reload systemd daemon
 	if err := l.systemctlCommand("daemon-reload"); err != nil {
-		// Clean up on failure
-		os.Remove(l.unitFilePath)
+		// Clean up on failure using injected file system
+		l.fileSystem.RemoveFile(l.unitFilePath)
 		return fmt.Errorf("failed to reload systemd daemon: %w", err)
 	}
 	
@@ -144,8 +178,8 @@ func (l *LinuxServiceManager) Uninstall() error {
 		fmt.Printf("Warning: failed to disable service: %v\n", err)
 	}
 	
-	// Remove unit file
-	if err := os.Remove(l.unitFilePath); err != nil {
+	// Remove unit file using injected file system
+	if err := l.fileSystem.RemoveFile(l.unitFilePath); err != nil {
 		return fmt.Errorf("failed to remove unit file: %w", err)
 	}
 	
@@ -264,8 +298,7 @@ func (l *LinuxServiceManager) Status() (ServiceStatus, error) {
 }
 
 func (l *LinuxServiceManager) IsInstalled() bool {
-	_, err := os.Stat(l.unitFilePath)
-	return err == nil
+	return l.fileSystem.FileExists(l.unitFilePath)
 }
 
 func (l *LinuxServiceManager) IsRunning() bool {
@@ -302,9 +335,8 @@ func (l *LinuxServiceManager) GetLogs(lines int) ([]LogEntry, error) {
 		args = append(args, "--user")
 	}
 	
-	// Execute journalctl command
-	cmd := exec.Command(args[0], args[1:]...)
-	output, err := cmd.Output()
+	// Execute journalctl command using injected executor
+	output, err := l.commandExec.Execute(args[0], args[1:]...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get journal logs: %w", err)
 	}
@@ -443,30 +475,49 @@ func (l *LinuxServiceManager) generateSystemdUnit(config ServiceConfig) (string,
 	return unit.String(), nil
 }
 
+/**
+ * CONTEXT:   Execute systemctl command with injected executor
+ * INPUT:     systemctl command arguments
+ * OUTPUT:    Command execution result with error handling
+ * BUSINESS:  Systemctl operations using dependency injection for testability
+ * CHANGE:    Applied dependency injection for command execution
+ * RISK:      Medium - System service commands affecting service state
+ */
 func (l *LinuxServiceManager) systemctlCommand(args ...string) error {
-	cmd := l.buildSystemctlCommand(args...)
-	if err := cmd.Run(); err != nil {
-		if exitError, ok := err.(*exec.ExitError); ok {
-			return fmt.Errorf("systemctl %s failed: %s", strings.Join(args, " "), string(exitError.Stderr))
-		}
+	cmdArgs := l.buildSystemctlArgs(args...)
+	_, err := l.commandExec.Execute(cmdArgs[0], cmdArgs[1:]...)
+	if err != nil {
 		return fmt.Errorf("systemctl %s failed: %w", strings.Join(args, " "), err)
 	}
 	return nil
 }
 
+/**
+ * CONTEXT:   Execute systemctl command and capture output with injected executor
+ * INPUT:     systemctl command arguments
+ * OUTPUT:    Command output and error handling
+ * BUSINESS:  Systemctl queries using dependency injection for testability
+ * CHANGE:    Applied dependency injection for command output capture
+ * RISK:      Medium - System service queries affecting status reporting
+ */
 func (l *LinuxServiceManager) systemctlOutput(args ...string) (string, error) {
-	cmd := l.buildSystemctlCommand(args...)
-	output, err := cmd.Output()
+	cmdArgs := l.buildSystemctlArgs(args...)
+	output, err := l.commandExec.Execute(cmdArgs[0], cmdArgs[1:]...)
 	if err != nil {
-		if exitError, ok := err.(*exec.ExitError); ok {
-			return string(output), fmt.Errorf("systemctl %s failed: %s", strings.Join(args, " "), string(exitError.Stderr))
-		}
 		return string(output), fmt.Errorf("systemctl %s failed: %w", strings.Join(args, " "), err)
 	}
 	return string(output), nil
 }
 
-func (l *LinuxServiceManager) buildSystemctlCommand(args ...string) *exec.Cmd {
+/**
+ * CONTEXT:   Build systemctl command arguments with user service handling
+ * INPUT:     systemctl command arguments
+ * OUTPUT:    Complete command arguments array ready for execution
+ * BUSINESS:  Command argument building for both user and system services
+ * CHANGE:    Extracted argument building from command construction
+ * RISK:      Low - Command argument preparation without execution
+ */
+func (l *LinuxServiceManager) buildSystemctlArgs(args ...string) []string {
 	cmdArgs := make([]string, 0, len(args)+2)
 	cmdArgs = append(cmdArgs, "systemctl")
 	
@@ -475,7 +526,14 @@ func (l *LinuxServiceManager) buildSystemctlCommand(args ...string) *exec.Cmd {
 	}
 	
 	cmdArgs = append(cmdArgs, args...)
-	
+	return cmdArgs
+}
+
+// Legacy method for backward compatibility
+func (l *LinuxServiceManager) buildSystemctlCommand(args ...string) *exec.Cmd {
+	cmdArgs := l.buildSystemctlArgs(args...)
+	// Note: This method returns *exec.Cmd for external use
+	// For internal use, prefer l.commandExec.Execute() for testability
 	return exec.Command(cmdArgs[0], cmdArgs[1:]...)
 }
 

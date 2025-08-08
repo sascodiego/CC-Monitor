@@ -181,6 +181,11 @@ func initializeCommands() {
  * RISK:      Low - Command execution with proper error handling
  */
 func executeRootCommand() error {
+	// Initialize dependency injection before command execution
+	if err := initializeDependencyInjection(); err != nil {
+		return fmt.Errorf("failed to initialize dependencies: %w", err)
+	}
+	
 	initializeCommands()
 	return rootCmd.Execute()
 }

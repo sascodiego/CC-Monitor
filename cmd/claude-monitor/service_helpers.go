@@ -1,238 +1,249 @@
 /**
- * CONTEXT:   Service helper functions for platform detection and integration
- * INPUT:     Platform detection, service state checking, utility functions
- * OUTPUT:    Service management utilities and cross-platform compatibility
- * BUSINESS:  Service helpers enable seamless service integration across platforms
- * CHANGE:    Initial service helper functions with platform detection
- * RISK:      Low - Utility functions with proper error handling
+ * CONTEXT:   Service utility functions for display formatting and configuration conversion
+ * INPUT:     Service status data, configuration objects, and system information
+ * OUTPUT:    Formatted display output, configuration conversions, and utility operations
+ * BUSINESS:  Helper functions provide consistent formatting and reduce code duplication
+ * CHANGE:    Extracted from service.go - focused utility functions with single responsibility
+ * RISK:      Low - Utility functions with no side effects, focused on display and conversion
  */
 
 package main
 
 import (
 	"fmt"
-	"os"
 	"runtime"
 	"strings"
+	"time"
+
+	"github.com/claude-monitor/system/internal/service/interfaces"
+	"github.com/fatih/color"
 )
 
 /**
- * CONTEXT:   Windows service detection helper
- * INPUT:     Runtime environment and Windows service API
- * OUTPUT:    Boolean indicating if running as Windows service
- * BUSINESS:  Service detection enables automatic service mode activation
- * CHANGE:    Initial Windows service detection implementation
- * RISK:      Low - Platform detection with safe fallback
+ * CONTEXT:   Service controller command execution using ServiceController interface
+ * INPUT:     Operation name and controller action function
+ * OUTPUT:    Service operation result using focused interface
+ * BUSINESS:  Controller commands use only controller interface (Interface Segregation Principle)
+ * CHANGE:    Interface segregation - controller operations only
+ * RISK:      Medium - Service operations affecting system behavior
  */
-func isRunningAsWindowsService() (bool, error) {
-	if runtime.GOOS != "windows" {
-		return false, nil
+func executeServiceControllerCommand(operation string, action func(interfaces.ServiceController) error) error {
+	// Create composite service manager
+	compositeManager, err := NewCompositeServiceManager()
+	if err != nil {
+		return fmt.Errorf("failed to create service manager: %w", err)
 	}
 	
-	// Check if we're running in a service context
-	// This is a simplified check - in production, you'd use golang.org/x/sys/windows/svc
-	// For now, check if no console is attached (common for services)
-	if os.Getenv("CLAUDE_MONITOR_MODE") == "service" {
-		return true, nil
+	// Use ServiceInstaller interface for installation check
+	var installer interfaces.ServiceInstaller = compositeManager
+	// Use ServiceController interface for runtime operations
+	var controller interfaces.ServiceController = compositeManager
+	
+	if !installer.IsInstalled() {
+		return fmt.Errorf("service is not installed - run 'claude-monitor service install' first")
 	}
 	
-	// Additional checks could be added here
-	// - Check if running under service control manager
-	// - Check for service-specific environment variables
-	// - Check process parent information
+	infoColor.Printf("⏳ %sing service...\n", strings.Title(operation))
 	
-	return false, nil
-}
-
-/**
- * CONTEXT:   Service configuration validation
- * INPUT:     Service configuration parameters and validation rules
- * OUTPUT:    Validated configuration or error details
- * BUSINESS:  Configuration validation ensures reliable service operation
- * CHANGE:    Initial configuration validation with comprehensive checks
- * RISK:      Medium - Configuration validation affects service reliability
- */
-func validateServiceConfiguration(config ServiceConfig) error {
-	if config.Name == "" {
-		return fmt.Errorf("service name is required")
+	if err := action(controller); err != nil {
+		return fmt.Errorf("failed to %s service: %w", operation, err)
 	}
 	
-	if config.DisplayName == "" {
-		return fmt.Errorf("service display name is required")
-	}
+	successColor.Printf("✅ Service %sed successfully\n", operation)
 	
-	if config.ExecutablePath == "" {
-		return fmt.Errorf("executable path is required")
-	}
-	
-	// Check if executable exists
-	if _, err := os.Stat(config.ExecutablePath); err != nil {
-		return fmt.Errorf("executable not found: %s", config.ExecutablePath)
-	}
-	
-	// Validate working directory
-	if config.WorkingDir != "" {
-		if info, err := os.Stat(config.WorkingDir); err != nil {
-			return fmt.Errorf("working directory not found: %s", config.WorkingDir)
-		} else if !info.IsDir() {
-			return fmt.Errorf("working directory is not a directory: %s", config.WorkingDir)
+	// Wait a moment and show status for start/restart
+	if operation == "start" || operation == "restart" {
+		time.Sleep(time.Second)
+		if controller.IsRunning() {
+			successColor.Println("✅ Service is running and healthy")
+		} else {
+			warningColor.Println("⚠️  Service may still be starting...")
 		}
-	}
-	
-	// Validate start mode
-	switch config.StartMode {
-	case StartModeAuto, StartModeManual, StartModeDisabled:
-		// Valid start modes
-	default:
-		return fmt.Errorf("invalid start mode: %s", config.StartMode)
 	}
 	
 	return nil
 }
 
 /**
- * CONTEXT:   Cross-platform service capability detection
- * INPUT:     Platform information and service system availability
- * OUTPUT:    Service capabilities and limitations for current platform
- * BUSINESS:  Capability detection enables appropriate service feature availability
- * CHANGE:    Initial capability detection with Windows and Linux support
- * RISK:      Low - Feature detection with safe defaults
+ * CONTEXT:   Service status display using interfaces.ServiceStatus structure
+ * INPUT:     interfaces.ServiceStatus with comprehensive status information
+ * OUTPUT:    Formatted status display with color coding and metrics
+ * BUSINESS:  Status display enables monitoring using segregated interface data
+ * CHANGE:    Updated to use interfaces.ServiceStatus instead of legacy ServiceStatus
+ * RISK:      Low - Display function using interface-segregated status information
  */
-type ServiceCapabilities struct {
-	CanInstall      bool   `json:"can_install"`
-	CanStart        bool   `json:"can_start"`
-	CanStop         bool   `json:"can_stop"`
-	CanRestart      bool   `json:"can_restart"`
-	CanGetStatus    bool   `json:"can_get_status"`
-	CanGetLogs      bool   `json:"can_get_logs"`
-	RequiresAdmin   bool   `json:"requires_admin"`
-	ServiceType     string `json:"service_type"`
-	ConfigLocation  string `json:"config_location"`
-	LogLocation     string `json:"log_location"`
-}
-
-func GetServiceCapabilities() ServiceCapabilities {
-	switch runtime.GOOS {
-	case "windows":
-		return ServiceCapabilities{
-			CanInstall:     true,
-			CanStart:       true,
-			CanStop:        true,
-			CanRestart:     true,
-			CanGetStatus:   true,
-			CanGetLogs:     true,
-			RequiresAdmin:  true,
-			ServiceType:    "Windows Service (SCM)",
-			ConfigLocation: "Registry",
-			LogLocation:    "Windows Event Log",
-		}
-		
-	case "linux":
-		return ServiceCapabilities{
-			CanInstall:     true,
-			CanStart:       true,
-			CanStop:        true,
-			CanRestart:     true,
-			CanGetStatus:   true,
-			CanGetLogs:     true,
-			RequiresAdmin:  !serviceUserLevel,
-			ServiceType:    "systemd",
-			ConfigLocation: getLinuxConfigLocation(),
-			LogLocation:    "systemd journal",
-		}
-		
-	default:
-		return ServiceCapabilities{
-			CanInstall:     false,
-			CanStart:       false,
-			CanStop:        false,
-			CanRestart:     false,
-			CanGetStatus:   false,
-			CanGetLogs:     false,
-			RequiresAdmin:  false,
-			ServiceType:    "Unsupported",
-			ConfigLocation: "N/A",
-			LogLocation:    "N/A",
-		}
-	}
-}
-
-func getLinuxConfigLocation() string {
-	if serviceUserLevel {
-		homeDir, _ := os.UserHomeDir()
-		return homeDir + "/.config/systemd/user/"
-	}
-	return "/etc/systemd/system/"
-}
-
-
-/**
- * CONTEXT:   Service status display helpers
- * INPUT:     Service status information and formatting preferences
- * OUTPUT:    Formatted service status for CLI display
- * BUSINESS:  Status helpers provide consistent service information presentation
- * CHANGE:    Initial status helpers with color coding and formatting
- * RISK:      Low - Display formatting with no system impact
- */
-func formatServiceStatusSummary(status ServiceStatus) string {
-	var summary strings.Builder
+func displayInterfacesServiceStatus(status interfaces.ServiceStatus) {
+	// Service state with color coding
+	var stateColor *color.Color
+	var stateIcon string
 	
-	// Service state
 	switch status.State {
-	case ServiceStateRunning:
-		summary.WriteString("✅ Running")
-	case ServiceStateStopped:
-		summary.WriteString("⏹️ Stopped")
-	case ServiceStateStarting:
-		summary.WriteString("⏳ Starting")
-	case ServiceStateStopping:
-		summary.WriteString("⏹️ Stopping")
-	case ServiceStateFailed:
-		summary.WriteString("❌ Failed")
+	case interfaces.ServiceStateRunning:
+		stateColor = successColor
+		stateIcon = "✅"
+	case interfaces.ServiceStateStopped:
+		stateColor = warningColor
+		stateIcon = "⏹️"
+	case interfaces.ServiceStateStarting:
+		stateColor = infoColor
+		stateIcon = "⏳"
+	case interfaces.ServiceStateStopping:
+		stateColor = warningColor
+		stateIcon = "⏹️"
+	case interfaces.ServiceStateFailed:
+		stateColor = errorColor
+		stateIcon = "❌"
 	default:
-		summary.WriteString("❓ Unknown")
+		stateColor = dimColor
+		stateIcon = "❓"
 	}
 	
-	// Uptime if available
-	if status.Uptime > 0 {
-		summary.WriteString(fmt.Sprintf(" (uptime: %s)", formatDuration(status.Uptime)))
-	}
-	
-	// PID if available
-	if status.PID > 0 {
-		summary.WriteString(fmt.Sprintf(" [PID: %d]", status.PID))
-	}
-	
-	return summary.String()
-}
-
-func formatServiceInfo(status ServiceStatus) [][]string {
-	var info [][]string
-	
-	info = append(info, []string{"Service Name:", status.Name})
-	info = append(info, []string{"Display Name:", status.DisplayName})
-	info = append(info, []string{"State:", string(status.State)})
+	fmt.Printf("Service: %s\n", status.DisplayName)
+	stateColor.Printf("%s State: %s\n", stateIcon, string(status.State))
 	
 	if status.PID > 0 {
-		info = append(info, []string{"Process ID:", fmt.Sprintf("%d", status.PID)})
+		infoColor.Printf("🆔 PID: %d\n", status.PID)
 	}
 	
 	if !status.StartTime.IsZero() {
-		info = append(info, []string{"Started:", status.StartTime.Format("2006-01-02 15:04:05")})
-		info = append(info, []string{"Uptime:", formatDuration(status.Uptime)})
+		infoColor.Printf("⏰ Started: %s\n", status.StartTime.Format("2006-01-02 15:04:05"))
+		infoColor.Printf("⏱️  Uptime: %s\n", status.Uptime.Round(time.Second))
 	}
 	
 	if status.Memory > 0 {
-		info = append(info, []string{"Memory:", formatBytes(status.Memory)})
+		infoColor.Printf("💾 Memory: %s\n", formatBytes(status.Memory))
 	}
 	
 	if status.CPU > 0 {
-		info = append(info, []string{"CPU:", fmt.Sprintf("%.1f%%", status.CPU)})
+		infoColor.Printf("🔄 CPU: %.1f%%\n", status.CPU)
 	}
 	
 	if status.LastError != "" {
-		info = append(info, []string{"Last Error:", status.LastError})
+		errorColor.Printf("⚠️  Last Error: %s\n", status.LastError)
+	}
+}
+
+/**
+ * CONTEXT:   Legacy service status display function (DEPRECATED)
+ * INPUT:     Legacy ServiceStatus structure
+ * OUTPUT:    Formatted status display with color coding and metrics
+ * BUSINESS:  DEPRECATED status display for backwards compatibility
+ * CHANGE:    DEPRECATED - Use displayInterfacesServiceStatus instead
+ * RISK:      Low - Legacy display function, will be removed after migration
+ */
+func displayServiceStatus(status ServiceStatus) {
+	// Service state with color coding
+	var stateColor *color.Color
+	var stateIcon string
+	
+	switch status.State {
+	case ServiceStateRunning:
+		stateColor = successColor
+		stateIcon = "✅"
+	case ServiceStateStopped:
+		stateColor = warningColor
+		stateIcon = "⏹️"
+	case ServiceStateStarting:
+		stateColor = infoColor
+		stateIcon = "⏳"
+	case ServiceStateStopping:
+		stateColor = warningColor
+		stateIcon = "⏹️"
+	case ServiceStateFailed:
+		stateColor = errorColor
+		stateIcon = "❌"
+	default:
+		stateColor = dimColor
+		stateIcon = "❓"
 	}
 	
-	return info
+	fmt.Printf("Service: %s\n", status.DisplayName)
+	stateColor.Printf("%s State: %s\n", stateIcon, string(status.State))
+	
+	if status.PID > 0 {
+		infoColor.Printf("🆔 PID: %d\n", status.PID)
+	}
+	
+	if !status.StartTime.IsZero() {
+		infoColor.Printf("⏰ Started: %s\n", status.StartTime.Format("2006-01-02 15:04:05"))
+		infoColor.Printf("⏱️  Uptime: %s\n", status.Uptime.Round(time.Second))
+	}
+	
+	if status.Memory > 0 {
+		infoColor.Printf("💾 Memory: %s\n", formatBytes(status.Memory))
+	}
+	
+	if status.CPU > 0 {
+		infoColor.Printf("🔄 CPU: %.1f%%\n", status.CPU)
+	}
+	
+	if status.LastError != "" {
+		errorColor.Printf("⚠️  Last Error: %s\n", status.LastError)
+	}
+}
+
+/**
+ * CONTEXT:   User display name formatting for service configuration
+ * INPUT:     User string (may be empty)
+ * OUTPUT:    Platform-appropriate user display name
+ * BUSINESS:  Consistent user display across platforms for service configuration
+ * CHANGE:    Extracted utility function with platform-specific defaults
+ * RISK:      Low - Simple string formatting utility with platform detection
+ */
+func getUserDisplayName(user string) string {
+	if user == "" {
+		switch runtime.GOOS {
+		case "windows":
+			return "LocalSystem"
+		default:
+			return "root"
+		}
+	}
+	return user
+}
+
+/**
+ * CONTEXT:   Byte size formatting utility for memory display
+ * INPUT:     Byte count as int64
+ * OUTPUT:    Human-readable byte size string (B, KB, MB, GB, etc.)
+ * BUSINESS:  Consistent memory usage display in service status
+ * CHANGE:    Extracted utility function for byte formatting
+ * RISK:      Low - Pure formatting function with no side effects
+ */
+func formatBytes(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+/**
+ * CONTEXT:   Configuration conversion from legacy ServiceConfig to interfaces.ServiceConfig
+ * INPUT:     Legacy ServiceConfig structure with platform-specific settings
+ * OUTPUT:    interfaces.ServiceConfig structure for segregated interface use
+ * BUSINESS:  Configuration conversion enables Interface Segregation Principle adoption
+ * CHANGE:    Initial configuration conversion supporting interface migration
+ * RISK:      Low - Configuration mapping preserving all settings
+ */
+func convertToInterfacesConfig(config ServiceConfig) interfaces.ServiceConfig {
+	return interfaces.ServiceConfig{
+		Name:             config.Name,
+		DisplayName:      config.DisplayName,
+		Description:      config.Description,
+		ExecutablePath:   config.ExecutablePath,
+		Arguments:        config.Arguments,
+		WorkingDir:       config.WorkingDir,
+		User:             config.User,
+		Group:            config.Group,
+		StartMode:        interfaces.ServiceStartMode(config.StartMode),
+		RestartOnFailure: config.RestartOnFailure,
+		LogLevel:         config.LogLevel,
+		Environment:      config.Environment,
+	}
 }

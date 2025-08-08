@@ -397,6 +397,18 @@ func (w *WindowsServiceManager) GetLogs(lines int) ([]LogEntry, error) {
  * CHANGE:    Initial service execution with daemon integration
  * RISK:      High - Service execution affects system stability and responsiveness
  */
+/**
+ * CONTEXT:   Check if current process is running as Windows service
+ * INPUT:     Current process execution context
+ * OUTPUT:    Boolean indicating service mode and any detection errors
+ * BUSINESS:  Service detection enables proper initialization mode selection
+ * CHANGE:    Added missing function for daemon manager service detection
+ * RISK:      Low - Simple Windows service API call with error handling
+ */
+func isRunningAsWindowsService() (bool, error) {
+	return svc.IsWindowsService()
+}
+
 func RunAsWindowsService(config ServiceConfig) error {
 	serviceName := config.Name
 	
