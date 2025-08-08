@@ -47,6 +47,7 @@ type DaemonConfig struct {
 
 type ServerConfig struct {
 	ListenAddr      string        `json:"listen_addr"`
+	Host            string        `json:"host"`
 	Port            int           `json:"port"`
 	ReadTimeout     time.Duration `json:"read_timeout"`
 	WriteTimeout    time.Duration `json:"write_timeout"`
@@ -58,12 +59,15 @@ type ServerConfig struct {
 }
 
 type DatabaseConfig struct {
-	Path              string        `json:"path"`
-	ConnectionTimeout time.Duration `json:"connection_timeout"`
-	QueryTimeout      time.Duration `json:"query_timeout"`
-	BackupEnabled     bool          `json:"backup_enabled"`
-	BackupInterval    time.Duration `json:"backup_interval"`
-	BackupPath        string        `json:"backup_path"`
+	Path                string        `json:"path"`
+	ConnectionTimeout   time.Duration `json:"connection_timeout"`
+	QueryTimeout        time.Duration `json:"query_timeout"`
+	BackupEnabled       bool          `json:"backup_enabled"`
+	BackupInterval      time.Duration `json:"backup_interval"`
+	BackupPath          string        `json:"backup_path"`
+	MaxConnections      int           `json:"max_connections"`
+	MaxIdleConnections  int           `json:"max_idle_connections"`
+	ConnectTimeout      time.Duration `json:"connect_timeout"`
 }
 
 type LoggingConfig struct {
@@ -110,7 +114,8 @@ type HealthConfig struct {
 func NewDefaultConfig() *DaemonConfig {
 	return &DaemonConfig{
 		Server: ServerConfig{
-			ListenAddr:      "localhost:9193",
+			ListenAddr:      DefaultListenAddr,
+			Host:            "localhost",
 			Port:            9193,
 			ReadTimeout:     10 * time.Second,
 			WriteTimeout:    10 * time.Second,
@@ -119,12 +124,15 @@ func NewDefaultConfig() *DaemonConfig {
 			TLSEnabled:      false,
 		},
 		Database: DatabaseConfig{
-			Path:              "./data/claude_monitor.kuzu",
-			ConnectionTimeout: 10 * time.Second,
-			QueryTimeout:      30 * time.Second,
-			BackupEnabled:     true,
-			BackupInterval:    24 * time.Hour,
-			BackupPath:        "./data/backups",
+			Path:               "./data/claude_monitor.db",
+			ConnectionTimeout:  10 * time.Second,
+			QueryTimeout:       30 * time.Second,
+			BackupEnabled:      true,
+			BackupInterval:     24 * time.Hour,
+			BackupPath:         "./data/backups",
+			MaxConnections:     25,
+			MaxIdleConnections: 5,
+			ConnectTimeout:     10 * time.Second,
 		},
 		Logging: LoggingConfig{
 			Level:      "info",
@@ -411,9 +419,9 @@ func (dc *DaemonConfig) SaveToFile(configPath string) error {
 /**
  * CONTEXT:   Get database connection string from configuration
  * INPUT:     No parameters, uses internal database configuration
- * OUTPUT:    Database path ready for KuzuDB connection
+ * OUTPUT:    Database path ready for SQLite connection
  * BUSINESS:  Provide consistent database connection parameters
- * CHANGE:    Initial database connection configuration
+ * CHANGE:    Updated for SQLite database configuration
  * RISK:      Low - Simple path construction for database connection
  */
 func (dc *DaemonConfig) GetDatabasePath() string {

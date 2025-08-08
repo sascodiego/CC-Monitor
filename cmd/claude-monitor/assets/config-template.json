@@ -10,18 +10,6 @@
     "duration_hours": 5,
     "max_idle_minutes": 5
   },
-  "hook": {
-    "enabled": true,
-    "timeout_ms": 50,
-    "fallback_log": true,
-    "ignore_patterns": [
-      "*/node_modules/*",
-      "*/target/*",
-      "*/.git/*",
-      "*/tmp/*",
-      "*/.claude-monitor/*"
-    ]
-  },
   "reporting": {
     "default_output_format": "table",
     "enable_colors": true,
@@ -31,6 +19,6 @@
   "projects": {
     "auto_detect": true,
     "custom_names": {},
-    "track_git_branches": true
+    "track_git_branches": false
   }
 }

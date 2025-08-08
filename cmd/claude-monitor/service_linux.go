@@ -332,7 +332,7 @@ func (l *LinuxServiceManager) generateSystemdUnit(config ServiceConfig) (string,
 	// [Unit] section
 	unit.WriteString("[Unit]\n")
 	unit.WriteString(fmt.Sprintf("Description=%s\n", config.Description))
-	unit.WriteString("Documentation=https://github.com/claude-monitor/system\n")
+	unit.WriteString("Documentation=https://github.com/claude-monitor/system/system\n")
 	
 	// Dependencies
 	if len(config.LinuxService.After) > 0 {

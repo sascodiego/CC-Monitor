@@ -27,6 +27,8 @@ import (
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/eventlog"
 	"golang.org/x/sys/windows/svc/mgr"
+	
+	"github.com/claude-monitor/system/internal/config"
 )
 
 /**
@@ -454,7 +456,7 @@ func (h *WindowsServiceHandler) Execute(args []string, r <-chan svc.ChangeReques
 	// Override with service-specific settings
 	config.Daemon.ListenAddr = h.config.Environment["CLAUDE_MONITOR_LISTEN_ADDR"]
 	if config.Daemon.ListenAddr == "" {
-		config.Daemon.ListenAddr = "localhost:8080"
+		config.Daemon.ListenAddr = config.DefaultListenAddr
 	}
 	
 	// Create embedded server

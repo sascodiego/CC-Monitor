@@ -18,7 +18,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/claude-monitor/system/internal/entities"
 )
 
 // ContextDetector provides utilities for detecting session context automatically

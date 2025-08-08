@@ -44,9 +44,25 @@
       "Bash(CGO_ENABLED=1 go build -ldflags=\"-s -w\" -o bin/claude-monitor ./cmd/claude-monitor)",
       "Bash(go run:*)",
       "Bash(go list:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(CGO_ENABLED=1 go build -ldflags=\"-s -w\" -o claude-monitor-fixed ./cmd/claude-monitor)",
+      "Bash(CGO_ENABLED=1 go build -ldflags=\"-s -w\" -o claude-monitor-final ./cmd/claude-monitor)",
+      "Bash(BACKUP_FILE=\"data_backup_$(date +%Y%m%d_%H%M%S).json\")",
+      "Bash(echo \"Creating backup: $BACKUP_FILE\")",
+      "Bash(sqlite3:*)",
+      "Bash(CGO_ENABLED=1 go build -ldflags=\"-s -w\" -o claude-monitor-professional ./cmd/claude-monitor)",
+      "Bash(CGO_ENABLED=1 go build -ldflags=\"-s -w\" -o demo-professional-today ./cmd/demo-professional-today)",
+      "Bash(./demo-professional-today)",
+      "Bash(CGO_ENABLED=1 go build -ldflags=\"-s -w\" -o claude-monitor-centralized ./cmd/claude-monitor)",
+      "Bash(awk:*)",
+      "Bash(GOOS=linux go build -o claude-monitor ./cmd/claude-monitor)",
+      "Bash(./claude-daemon --version)",
+      "Bash(git add:*)"
     ],
-    "deny": []
+    "deny": [],
+    "additionalDirectories": [
+      "/home/dsasco/.claude"
+    ]
   },
   "disableAllHooks": true
 }
